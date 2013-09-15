@@ -25,6 +25,7 @@ typedef struct _MASS_PACKET {
 
 // server merge check packet
 typedef struct _MASS_SMCHECK {
+   MASS_PACKET       hdr;
    uint32            askingID;               // ip/id for sender
    uint16            askingPort;             // port for sender
    f64               x, y, z;                // averaged center position for sender
@@ -33,6 +34,7 @@ typedef struct _MASS_SMCHECK {
 } MASS_SMCHECK;
 
 typedef struct _MASS_SMREPLY {
+   MASS_PACKET       hdr;
    uint32            replyID;                // (sender) id of server to merge with
    uint32            replyPort;              // (sender) port of server to merge with
    uint32            maxCount;               // (sender) maximum number of entities that can be merged at this time
@@ -94,7 +96,6 @@ typedef struct _MASS_GHOSTSHUTDOWN {
 
 typedef struct _MASS_SERVICEREADY {
    MASS_PACKET             hdr;
-   uint16                  servicePort;
 } MASS_SERVICEREADY;
 
 #endif

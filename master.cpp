@@ -108,6 +108,9 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
          pkt = (MASS_PACKET*)buf;
          //printf("[master] pkt->type:%u\n", pkt->type);
          switch (pkt->type) {
+            default:
+               printf("unknown:\n");
+               break;
             case MASS_ENTITYADOPTREDIRECT_TYPE:
                addr.sin_addr.S_un.S_addr = cservices->addr;
                addr.sin_port = cservices->port;

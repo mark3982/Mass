@@ -6,6 +6,7 @@
 #include "ghost.h"
 #include "core.h"
 #include "packet.h"
+#include "rdp.h"
 
 DWORD WINAPI mass_ghost_child(void *arg);
 
@@ -114,7 +115,9 @@ void mass_ghost_sm(SOCKET sock, MASS_ENTITYCHAIN *entities, uint32 masterID, uin
 
    addrsz = sizeof(addr);
    getsockname(sock, (sockaddr*)&addr, &addrsz);
-
+   
+   smc.hdr.length = sizeof(MASS_SMCHECK);
+   smc.hdr.type = MASS_SMCHECK_TYPE;
    smc.askingID = addr.sin_addr.S_un.S_addr;
    smc.askingPort = addr.sin_port;
    smc.irange = MASS_INTERACT_RANGE;
@@ -195,7 +198,6 @@ void mass_ghost_cwc(MASS_ENTITYCHAIN *ec, f64 *x, f64 *y, f64 *z) {
 }
 
 DWORD WINAPI mass_ghost_child(void *arg) {
-   SOCKET                  sock;
    sockaddr_in             addr;
    u_long                  iMode;
    int                     addrsz;
@@ -212,40 +214,32 @@ DWORD WINAPI mass_ghost_child(void *arg) {
    uint32                  lsm;
    uint16                  entityCount;
     int                     x;
+   uint32                  fromAddr;
+   uint16                  fromPort;
 
    MASS_ENTITYCHAIN        *entities;
+   MASS_RDP                sock;
+
+   mass_rdp_create(&sock, args->ifaceaddr, &servicePort, 10, 100);   
 
    entities = 0;
    entityCount = 0;
 
    args = (MASS_GHOSTCHILD_ARGS*)arg;
 
-   sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-
-   addr.sin_family = AF_INET;
-   addr.sin_addr.s_addr = args->ifaceaddr;
-   addr.sin_port = 0;
-   
-   iMode = 1;
-   ioctlsocket(sock, FIONBIO, &iMode);
-
-   err = bind(sock, (sockaddr*)&addr, sizeof(sockaddr));
-
    addrsz = sizeof(addr);
-   getsockname(sock, (sockaddr*)&addr, &addrsz); 
 
    buf = malloc(0xffff);
 
    // reply that we have completed startup so we can be considered active and part of the chain
    sr.hdr.length = sizeof(MASS_SERVICEREADY);
    sr.hdr.type = MASS_SERVICEREADY_TYPE;
-   sr.servicePort = addr.sin_port;                // highly important to know what port this service runs on
    servicePort = addr.sin_port;
-   printf("[child] child service started %x:%x\n", addr.sin_addr.S_un.S_addr, addr.sin_port);
+   printf("[child] child service started %x:%x (%x:%x)\n", addr.sin_addr.S_un.S_addr, addr.sin_port, args->suraddr, args->surport);
    // send the reply
    addr.sin_addr.S_un.S_addr = args->suraddr;
    addr.sin_port = args->surport;
-   sendto(sock, (char*)&sr, sizeof(MASS_SERVICEREADY), 0, (sockaddr*)&addr, sizeof(addr));
+   mass_rdp_sendto(&sock, &sr, sizeof(MASS_SERVICEREADY), args->suraddr, args->surport);
 
    lgb = 0;
    lsm = 0;
@@ -291,8 +285,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
          mass_ghost_sm(sock, entities, args->suraddr, args->surport);
       }
 
-      // check for incoming messages on inner-network socket
-      while (recv(sock, (char*)buf, 0xffff, 0) > 0) {
+      while (mass_rdp_recvfrom(&sock, buf, 0xffff, &fromAddr, &fromPort)) {
          pkt = (MASS_PACKET*)buf;
          switch (pkt->type) {
             case MASS_SMCHECK_TYPE:
@@ -313,18 +306,19 @@ DWORD WINAPI mass_ghost_child(void *arg) {
 
                if (x < MASS_INTERACT_RANGE && entityCount < MASS_MAXENTITY) {
                   // allow the merge
+                  pktsmr.hdr.length = sizeof(MASS_SMREPLY);
+                  pktsmr.hdr.type = MASS_SMREPLY_TYPE;
                   pktsmr.replyID = args->ifaceaddr;
                   pktsmr.replyPort = servicePort;
                   pktsmr.maxCount = MASS_MAXENTITY - entityCount;
                   addr.sin_addr.S_un.S_addr = pktsmc->askingID;
                   addr.sin_port = pktsmc->askingPort;
-                  sendto(sock, (char*)&pktsmr, sizeof(MASS_SMREPLY), 0, (sockaddr*)&addr, sizeof(addr));
+                  mass_rdp_sendto(&sock, &pktsmr, sizeof(MASS_SMREPLY), fromAddr, fromPort);
+                  //sendto(sock, (char*)&pktsmr, sizeof(MASS_SMREPLY), 0, (sockaddr*)&addr, sizeof(addr));
                   printf("[child] sent GOOD reply for server merge\n");
                } else {
                   // continue onward through the chain
-                  addr.sin_addr.S_un.S_addr = args->naddr;
-                  addr.sin_port = args->nport;
-                  sendto(sock, (char*)pktsmc, sizeof(MASS_SMCHECK), 0, (sockaddr*)&addr, sizeof(addr));
+                  mass_rdp_sendto(&sock, pktsmc, sizeof(MASS_SMCHECK), args->naddr, args->nport);
                }
                break;
             }

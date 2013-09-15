@@ -198,6 +198,8 @@ DWORD WINAPI mass_geo_entry(void *arg) {
    return 0;
 }
 
+#include "rdp.h"
+
 int _tmain(int argc, _TCHAR* argv[])
 {
    WSADATA                 wsaData;
@@ -205,6 +207,38 @@ int _tmain(int argc, _TCHAR* argv[])
    MASS_MASTER_ARGS        masterargs;
 
    WSAStartup(MAKEWORD(2, 2), &wsaData);
+
+   /*
+   // RDP TEST
+   MASS_RDP    ardp, brdp;
+   uint16      aport, bport;
+   uint32      addr;
+   uint16      port;
+   char        *o;
+   char        *s = "abcdefghijklmnopqrstuvwxyz";
+   int         x;
+   uint32      iface;
+
+   o = (char*)malloc(256);
+
+   aport = 0;
+   bport = 0;
+
+   iface = inet_addr("127.0.0.1");
+
+   mass_rdp_create(&ardp, iface, &aport, 8, 100);
+   mass_rdp_create(&brdp, iface, &bport, 8, 100);
+
+   x = mass_rdp_sendto(&ardp, s, 26, iface, bport);
+   
+   while (1) {
+      x = mass_rdp_recvfrom(&brdp, o, 256, &addr, &port);
+      x = mass_rdp_recvfrom(&ardp, o, 256, &addr, &port);
+   }
+
+   if (1)
+      return 0;
+   */
 
    //CreateThread(NULL, 0, mass_auth_entry, 0, 0, NULL);
    //CreateThread(NULL, 0, mass_geo_entry, 0, 0, NULL);
