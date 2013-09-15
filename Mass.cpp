@@ -20,8 +20,6 @@ typedef struct _TSPACECHUNK {
    uint8          *data;
 } SPACECHUNK;
 
-#define RANDFP() ((float)rand() / (float)RAND_MAX)
-
 void mass_geo_generate_space(SPACECHUNK *chunk, uint32 seed) {
 
 
@@ -204,6 +202,7 @@ int _tmain(int argc, _TCHAR* argv[])
 {
    WSADATA                 wsaData;
    MASS_GHOST_ARGS         ghostargs;
+   MASS_MASTER_ARGS        masterargs;
 
    WSAStartup(MAKEWORD(2, 2), &wsaData);
 
@@ -215,7 +214,9 @@ int _tmain(int argc, _TCHAR* argv[])
    ghostargs.servicePort = 61231;
    CreateThread(NULL, 0, mass_ghost_entry, &ghostargs, 0, NULL);
    
-   CreateThread(NULL, 0, mass_master_entry, &ghostargs, 0, NULL);
+   masterargs.ifaceaddr = inet_addr("127.0.0.1");
+   masterargs.servicePort = 61230;
+   CreateThread(NULL, 0, mass_master_entry, &masterargs, 0, NULL);
 
    for(;;);
 

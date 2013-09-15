@@ -1,4 +1,8 @@
 #include <math.h>
+#include <stdio.h>
+#include <time.h>
+
+#include "linklist.h"
 #include "ghost.h"
 #include "core.h"
 #include "packet.h"
@@ -50,6 +54,8 @@ DWORD WINAPI mass_ghost_entry(void *arg) {
                   // setup for next in chain
                   cargs->naddr = pktns->naddr;
                   cargs->nport = pktns->nport;
+                  // get the child to listen on the same interface as we do
+                  cargs->ifaceaddr = args->masterAddr;
                   // give reply address and port
                   cargs->suraddr = addr.sin_addr.S_un.S_addr;
                   cargs->surport = addr.sin_port;
@@ -59,6 +65,8 @@ DWORD WINAPI mass_ghost_entry(void *arg) {
          }
       }
       Sleep(1000);
+
+      //printf("[ghost] pinging master service\n");
       pktmp.hdr.length = sizeof(pktmp);
       pktmp.hdr.type = MASS_MASTERPING_TYPE;
 
@@ -71,22 +79,144 @@ DWORD WINAPI mass_ghost_entry(void *arg) {
    return 0;
 }
 
+void mass_ghost_sm(SOCKET sock, MASS_ENTITYCHAIN *entities, uint32 masterID, uint16 masterPort) {
+   // calculate averagedcenter point of entities
+   f64            ax, ay, az;
+   MASS_ENTITY    *ce;
+   int            ecnt;
+
+   ax = ay = az = 0.0;
+   ecnt = 0;
+   for (MASS_ENTITYCHAIN *cec = entities; cec != 0; cec = (MASS_ENTITYCHAIN*)mass_ll_next(cec)) {
+      ce = &cec->entity;
+      ++ecnt;
+      ax += ce->lx;
+      ay += ce->ly;
+      az += ce->lz;
+   }
+
+   // produce average center of all entities
+   ax = ax / ecnt;
+   ay = ay / ecnt;
+   az = az / ecnt;
+
+   // 1. send packet out to figure out who (another child) is closest to us and in range to merge
+   // **** range to merge is when weighted center of this domain reaches interaction range with the
+   //      center of the other domain
+   // --- consider calculated from opossite perspective [considered ... thoughts GOOD]
+   // 2. get packet with results; determine if close child is larger then us
+   //    2.a. if larger then try to send our entities to them
+   //    2.b. if smaller then do nothing and eventually they should try to send them to us
+   
+   MASS_SMCHECK           smc;
+   sockaddr_in            addr;
+   int                    addrsz;
+
+   addrsz = sizeof(addr);
+   getsockname(sock, (sockaddr*)&addr, &addrsz);
+
+   smc.askingID = addr.sin_addr.S_un.S_addr;
+   smc.askingPort = addr.sin_port;
+   smc.irange = MASS_INTERACT_RANGE;
+   smc.x = ax;
+   smc.y = ay;
+   smc.z = az;
+
+   addr.sin_addr.S_un.S_addr = masterID;
+   addr.sin_port = masterPort;   
+
+   sendto(sock, (char*)&smc, sizeof(MASS_SMCHECK), 0, (sockaddr*)&addr, sizeof(addr));
+}
+
+void mass_ghost_gb(SOCKET sock, MASS_ENTITYCHAIN *entities, uint32 masterID, uint16 masterPort) {
+   // calculate averagedcenter point of entities
+   f64            ax, ay, az;
+   MASS_ENTITY    *ce;
+   int            ecnt;
+
+   ax = ay = az = 0.0;
+   ecnt = 0;
+   for (MASS_ENTITYCHAIN *cec = entities; cec != 0; cec = (MASS_ENTITYCHAIN*)mass_ll_next(cec)) {
+      ce = &cec->entity;
+      ++ecnt;
+      ax += ce->lx;
+      ay += ce->ly;
+      az += ce->lz;
+   }
+
+   // produce average center of all entities
+   ax = ax / ecnt;
+   ay = ay / ecnt;
+   az = az / ecnt;
+
+   MASS_ENTITYADOPT           pktea;
+   sockaddr_in                addr;
+
+   addr.sin_family = AF_INET;
+   addr.sin_port = masterPort;
+   addr.sin_addr.S_un.S_addr = masterID;
+
+   pktea.hdr.type = MASS_ENTITYADOPTREDIRECT_TYPE;
+   pktea.hdr.length = sizeof(MASS_ENTITYADOPT);
+
+   f64            d;
+   // see who is outside this average center
+   for (MASS_ENTITYCHAIN *cec = entities; cec != 0; cec = (MASS_ENTITYCHAIN*)mass_ll_next(cec)) {
+      ce = &cec->entity;
+
+      d = MASS_DISTANCE(ce->lx, ce->ly, ce->lz, ax, ay, az);
+
+      if (d > MASS_INTERACT_RANGE) {
+         // try to get another service to adopt this entity
+         // note to self: (game story/term) space drift is the phenominia that occurs in this system
+         //               invisible atomic forces in deep space that stretch space and time
+         memcpy(&pktea.entity, ce, sizeof(MASS_ENTITY));
+         sendto(sock, (char*)&pktea, sizeof(MASS_ENTITYADOPT), 0, (sockaddr*)&addr, sizeof(addr));
+      }
+   }
+}
+
+void mass_ghost_cwc(MASS_ENTITYCHAIN *ec, f64 *x, f64 *y, f64 *z) {
+   int         cnt;
+   f64         ax, ay, az;
+
+   cnt = 0;
+   ax = ay = az = 0.0;
+   for (MASS_ENTITYCHAIN *ptr = ec; ptr != 0; ptr = (MASS_ENTITYCHAIN*)mass_ll_next(ptr)) {
+      ++cnt;
+      ax += ptr->entity.lx;
+      ay += ptr->entity.ly;
+      az += ptr->entity.lz;
+   }
+
+   *x = ax / cnt;
+   *y = ay / cnt;
+   *z = az / cnt;
+}
+
 DWORD WINAPI mass_ghost_child(void *arg) {
    SOCKET                  sock;
    sockaddr_in             addr;
    u_long                  iMode;
    int                     addrsz;
    int                     err;
+   uint16                  servicePort;
    MASS_GHOSTCHILD_ARGS    *args;
    void                    *buf;
    MASS_PACKET             *pkt;
    MASS_ENTITYCHECKADOPT   *pktca;
-   MASS_SERVICEREADY       *sr;
+   MASS_SERVICEREADY       sr;
    MASS_CHGSERVICENXT      *pktcsn;
+   time_t                  ct;
+   uint32                  lgb;
+   uint32                  lsm;
+   uint16                  entityCount;
+    int                     x;
 
    MASS_ENTITYCHAIN        *entities;
 
    entities = 0;
+   entityCount = 0;
 
    args = (MASS_GHOSTCHILD_ARGS*)arg;
 
@@ -107,20 +237,23 @@ DWORD WINAPI mass_ghost_child(void *arg) {
    buf = malloc(0xffff);
 
    // reply that we have completed startup so we can be considered active and part of the chain
-   sr = (MASS_SERVICEREADY*)malloc(sizeof(MASS_SERVICEREADY));
-   sr->hdr.length = sizeof(MASS_SERVICEREADY);
-   sr->hdr.type = MASS_SERVICEREADY_TYPE;
-   sr->servicePort = addr.sin_port;                // highly important to know what port this service runs on
-
+   sr.hdr.length = sizeof(MASS_SERVICEREADY);
+   sr.hdr.type = MASS_SERVICEREADY_TYPE;
+   sr.servicePort = addr.sin_port;                // highly important to know what port this service runs on
+   servicePort = addr.sin_port;
+   printf("[child] child service started %x:%x\n", addr.sin_addr.S_un.S_addr, addr.sin_port);
    // send the reply
    addr.sin_addr.S_un.S_addr = args->suraddr;
    addr.sin_port = args->surport;
-   sendto(sock, (char*)&sr, sizeof(sr), 0, (sockaddr*)&addr, addrsz);
+   sendto(sock, (char*)&sr, sizeof(MASS_SERVICEREADY), 0, (sockaddr*)&addr, sizeof(addr));
+
+   lgb = 0;
+   lsm = 0;
 
    while (1) {
       // do duties needed for hosting of entities (sending updates to clients... etc)
       // 1. update entity positions
-      for (MASS_ENTITYCHAIN *ec = entities; ec != 0; ec = ec->next) {
+      for (MASS_ENTITYCHAIN *ec = entities; ec != 0; ec = (MASS_ENTITYCHAIN*)mass_ll_next(ec)) {
          // advance the entity position from linear energy
          ec->entity.lx += ec->entity.lex / ec->entity.mass;
          ec->entity.ly += ec->entity.ley / ec->entity.mass;
@@ -131,18 +264,100 @@ DWORD WINAPI mass_ghost_child(void *arg) {
          ec->entity.rz += ec->entity.rez / ec->entity.mass;
       }
 
+      // set random energy levels
+      for (MASS_ENTITYCHAIN *ec = entities; ec != 0; ec = (MASS_ENTITYCHAIN*)mass_ll_next(ec)) {
+         ec->entity.lex = RANDFP() * 100.0;
+         ec->entity.ley = RANDFP() * 100.0;
+         ec->entity.lez = RANDFP() * 100.0;
+      }
+
+      // lgb (last group break)
+      // at interval
+         // 1. break entities into interaction groups
+         // 2. if more than one group exists keep largest and place other entities up for adoption
+         //         - the entities will be placed into existing child services or into new services
+      time(&ct);
+
+      if (ct - lgb > 5000) {
+         mass_ghost_gb(sock, entities, args->suraddr, args->surport);
+      }
+
+      // lsm (last server merge)
+      // at interval
+         // 1. create sphere encompassing all our entities then extend sphere by interaction distance
+         // 2. check with other childs if we overlap their own interaction area
+         // 3. pick largest (not full) child and start adopting entities into it until it is full or we are empty 
+      if (ct - lsm > 5000) {
+         mass_ghost_sm(sock, entities, args->suraddr, args->surport);
+      }
+
       // check for incoming messages on inner-network socket
       while (recv(sock, (char*)buf, 0xffff, 0) > 0) {
          pkt = (MASS_PACKET*)buf;
          switch (pkt->type) {
+            case MASS_SMCHECK_TYPE:
+            {
+               MASS_SMCHECK         *pktsmc;
+               MASS_SMREPLY         pktsmr;
+               f64                  x, y, z;               
+
+               pktsmc = (MASS_SMCHECK*)pkt;
+
+               if (pktsmc->askingID == args->ifaceaddr && pktsmc->askingPort == servicePort) {
+                  x = MASS_INTERACT_RANGE + 1; // i dunno i just felt the need for +1 ... LOL
+               } else {
+                  mass_ghost_cwc(entities, &x, &y, &z);
+
+                  x = MASS_DISTANCE(x, y, z, pktsmc->x, pktsmc->y, pktsmc->z);
+               }
+
+               if (x < MASS_INTERACT_RANGE && entityCount < MASS_MAXENTITY) {
+                  // allow the merge
+                  pktsmr.replyID = args->ifaceaddr;
+                  pktsmr.replyPort = servicePort;
+                  pktsmr.maxCount = MASS_MAXENTITY - entityCount;
+                  addr.sin_addr.S_un.S_addr = pktsmc->askingID;
+                  addr.sin_port = pktsmc->askingPort;
+                  sendto(sock, (char*)&pktsmr, sizeof(MASS_SMREPLY), 0, (sockaddr*)&addr, sizeof(addr));
+                  printf("[child] sent GOOD reply for server merge\n");
+               } else {
+                  // continue onward through the chain
+                  addr.sin_addr.S_un.S_addr = args->naddr;
+                  addr.sin_port = args->nport;
+                  sendto(sock, (char*)pktsmc, sizeof(MASS_SMCHECK), 0, (sockaddr*)&addr, sizeof(addr));
+               }
+               break;
+            }
+            case MASS_SMREPLY_TYPE:
+               MASS_SMREPLY         *pktsmr;
+               MASS_ENTITYADOPT      pktae;
+
+               pktsmr = (MASS_SMREPLY*)pkt;
+               
+               // send entities to them and mark them as locked until we get an accept or reject
+               pktae.hdr.type = MASS_ENTITYADOPT_TYPE;
+               pktae.hdr.length = sizeof(MASS_ENTITYADOPT);
+               
+               // send up to maxCount entities which could be all or only one
+               for (MASS_ENTITYCHAIN *ec = entities; ec != 0 && pktsmr->maxCount > 0; ec = (MASS_ENTITYCHAIN*)mass_ll_next(ec), --pktsmr->maxCount) {
+                  // if it is not locked them send it and lock it
+                  if ((ec->entity.flags & MASS_ENTITY_LOCKED) == 0) {
+                     memcpy(&pktae.entity, &ec->entity, sizeof(MASS_ENTITY));
+                     ec->entity.flags |= MASS_ENTITY_LOCKED;
+                  }
+                  // send it to the sender (addr already set from recvfrom call)
+                  sendto(sock, (char*)&pktae, sizeof(MASS_ENTITYADOPT), 0, (sockaddr*)&addr, sizeof(addr));
+               }
+               break;
             case MASS_CHGSERVICENXT_TYPE:
-         
-       // called when a new service is added to the service chain and the new service
-               // was not added to the front of the chain (note: adding service to front of the
-               // chain could be better); and have master server as root of chain)
+               // called to modify the chain; args is set instead of a local variable to facilitate
+               // the ability for the child service to restart after a crash and still maintain it's
+               // position in the chain since args is allocated on the heap and a reference is kept
+               // to faciliate the restart
                pktcsn = (MASS_CHGSERVICENXT*)pkt;
                args->naddr = pktcsn->naddr;
                args->nport = pktcsn->nport;
+               printf("[child] got CHGSERVICENXT with %x--%u\n", args->naddr, args->nport);
                break;
             case MASS_GHOSTSHUTDOWN_TYPE:
                // just exit; the issuer should have checked that the service has no state to save
@@ -150,18 +365,84 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                // used to shutdown an idle service; i may make the default behavior to save state
                // in the future but for now this is just a very simple implementation
                return 0;
+            case MASS_ENTITYADOPTREDIRECT_TYPE:
+               MASS_ENTITYADOPTREDIRECT   *pktear;
+
+               pktear = (MASS_ENTITYADOPTREDIRECT*)pkt;
+               addr.sin_addr.S_un.S_addr = pktear->replyID;
+               addr.sin_port = pktear->replyPort;
+            case MASS_ENTITYADOPT_TYPE:
+               MASS_ENTITYADOPT           *pktea;
+               MASS_ENTITYCHAIN           *ec;
+         
+               pktea = (MASS_ENTITYADOPT*)pkt;
+
+               // quick check we can actually take this entity
+               x = 0;
+               for (MASS_ENTITYCHAIN *_ec = entities; _ec != 0; ec = (MASS_ENTITYCHAIN*)mass_ll_next(ec)) {
+                  ++x;
+               }
+
+               if (x > MASS_MAXENTITY) {
+                  // reject the entity
+                  MASS_REJECTENTITY       pktre;
+   
+                  pktre.eid = pktea->entity.entityID;
+                  pktre.hdr.type = MASS_REJECTENTITY_TYPE;
+                  pktre.hdr.length = sizeof(MASS_REJECTENTITY);
+                  
+                  sendto(sock, (char*)&pktre, sizeof(MASS_REJECTENTITY), 0, (sockaddr*)&addr, sizeof(addr)); 
+                  break;
+               }
+
+               ec = (MASS_ENTITYCHAIN*)malloc(sizeof(MASS_ENTITYCHAIN));
+            
+               memcpy(&ec->entity,  &pktea->entity, sizeof(MASS_ENTITY));
+               mass_ll_add((void**)&entities, ec);
+               printf("[child] adopted entity %\n", ec->entity.entityID);
+               // accept the entity
+               {
+                  MASS_ACCEPTENTITY       pktae;
+              
+                  pktae.eid = pktea->entity.entityID;
+                  pktae.hdr.type = MASS_ACCEPTENTITY_TYPE;
+                  pktae.hdr.length = sizeof(MASS_ACCEPTENTITY);
+                  
+                  sendto(sock, (char*)&pktae, sizeof(MASS_ACCEPTENTITY), 0, (sockaddr*)&addr, sizeof(addr)); 
+
+                  ++entityCount;
+               }
+               break;
+            case MASS_REJECTENTITY_TYPE:
+               // unlock entity for adoption (it failed this adoption)
+               break;
+            case MASS_ACCEPTENTITY_TYPE:
+               // remove the entity from our entities
+               break;
             case MASS_ENTITYCHECKADOPT_TYPE:
                pktca = (MASS_ENTITYCHECKADOPT*)pkt;
+               printf("[child] got check adopt for entity %x\n", pktca->entityID);
                {
                   // -1. do we have ANY entities and has this entity not been within interaction range
                   if (pktca->bestServiceID == 0 && entities == 0) {
                      // ok claim this entity but allow it to be claimed by a service that has other
                      // entities if possible; but if not we will be able to claim the entity
                      pktca->bestServiceID = args->ifaceaddr;
+                     pktca->bestServicePort = servicePort;
                      pktca->bestDistance = MASS_INTERACT_RANGE + 1;
-                     addr.sin_addr.S_un.S_addr = args->naddr;
-                     addr.sin_port = args->nport;
-                     sendto(sock, (char*)pktca, sizeof(MASS_ENTITYCHECKADOPT), 0, (sockaddr*)&addr, addrsz);                     
+                     if (args->naddr == 0) {
+                        printf("[child] (IDLE) sending check adopt back to asking service\n");
+                        addr.sin_addr.S_un.S_addr = pktca->askingServiceID;
+                        addr.sin_port = pktca->askingServicePort;
+                     } else {
+                        printf("[child] (IDLE) sending check adopt to next child service\n");
+                        addr.sin_addr.S_un.S_addr = args->naddr;
+                        addr.sin_port = args->nport;
+                     }
+                     sendto(sock, (char*)pktca, sizeof(MASS_ENTITYCHECKADOPT), 0, (sockaddr*)&addr, addrsz);
+                     // also startup another idle instance of child game host to replace this one; we
+                     // always need at least one idle instance to help grab entities that are far away on their own
+                     CreateThread(NULL, 0, mass_ghost_child, args, 0, NULL);
                      break;
                   }
                   // 0. do we have room for another entity?
@@ -171,7 +452,8 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                      ++x;
                   }
                   // a hardcoded value for now but could set a static define or even dynamic value
-                  if (x > 10) {
+                  if (x > MASS_MAXENTITY) {
+                     // pass the packet onward
                      addr.sin_addr.S_un.S_addr = args->naddr;
                      addr.sin_port = args->nport;
                      sendto(sock, (char*)pktca, sizeof(MASS_ENTITYCHECKADOPT), 0, (sockaddr*)&addr, addrsz);
@@ -186,15 +468,18 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                         if (d < pktca->bestDistance) {
                            pktca->bestDistance = d;
                            pktca->bestServiceID = args->ifaceaddr;
+                           pktca->bestServicePort = servicePort;
                         }
                      }
                   }
                }
                // 3. send packet to next service in chain (or back to asking service)
                if (args->naddr == 0) {
+                  printf("[child] sending check adopt back to asking service\n");
                   addr.sin_addr.S_un.S_addr = pktca->askingServiceID;
                   addr.sin_port = pktca->askingServicePort;
                } else {
+                  printf("[child] sending check adopt to next child service\n");
                   addr.sin_addr.S_un.S_addr = args->naddr;
                   addr.sin_port = args->nport;
                }

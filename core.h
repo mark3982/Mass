@@ -9,11 +9,19 @@ typedef float f32;
 typedef double f64;
 typedef unsigned long long uint64;
 
-#define MASS_INTERACT_RANGE            100.0
+typedef uint64 ENTITYID;
+
+#define MASS_INTERACT_RANGE            1000.0
+#define MASS_MASTER_GHOST_TMEOUT       30000
+#define MASS_MAXENTITY                 10
+
+#define RANDFP() ((double)rand() / (double)RAND_MAX)
 
 ;  // strange MSVC IDE error and this fixed it..
 
-#define MASS_DISTANCE(a,b,c,x,y,z) (sqrt(a-x*a-x + b-y*b-y + c-z*c-z))
+#define MASS_DISTANCE(a,b,c,x,y,z) (sqrt((a)-(x)*(a)-(x) + (b)-(y)*(b)-(y) + (c)-(z)*(c)-(z)))
+
+#define MASS_ENTITY_LOCKED             0x01
 
 typedef struct _MASS_ENTITY {
    f64               lx, ly, lz;                   // linear position
@@ -21,7 +29,9 @@ typedef struct _MASS_ENTITY {
    f64               lex, ley, lez;                // linear energy
    f64               rex, rey, rez;                // rotational energy
 
-   uint64            entityID;
+   uint8             flags;                        // various flags
+
+   ENTITYID          entityID;
    uint16            innerEntityCnt;
    uint64            modelID;                   // references the outer/inner mesh, textures, structure, modules ...ect
                                                 // also references thrusters and such other things which should be stored
@@ -35,8 +45,8 @@ typedef struct _MASS_ENTITY {
 
 // packaged for a linked list
 typedef struct _MASS_ENTITYCHAIN {
-   MASS_ENTITY                entity;
    struct _MASS_ENTITYCHAIN   *next;
+   MASS_ENTITY                entity;
 } MASS_ENTITYCHAIN;
 
 #endif
