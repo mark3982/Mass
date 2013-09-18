@@ -14,20 +14,44 @@ uint32                  uid = 1;
 int mass_rdp_resend(MASS_RDP *rdp) {
    clock_t              ct;
    sockaddr_in          addr;
+   int                  x;
+   MASS_RDP_PKT         *tofree;
 
    ct = clock();
 
    addr.sin_family = AF_INET;
 
-   for (MASS_RDP_PKT *pkt = rdp->pkts; pkt != 0; pkt = (MASS_RDP_PKT*)mass_ll_next(pkt)) {
-      if (ct - pkt->tsent > rdp->rwt) {
+   tofree = 0;
+   x = 0;
+   for (MASS_RDP_PKT *pkt = rdp->pkts, *last = 0; pkt != 0; last = pkt, pkt = (MASS_RDP_PKT*)mass_ll_next(pkt)) {
+      if (ct - pkt->tsent > rdp->rwt * 10) {
          // resend
+         //printf("[rdp:%x] resend of %u to %x:%x\n", GetCurrentThreadId(), pkt->uid, pkt->addr, pkt->port);
+
+         if (tofree != 0) {
+            free(tofree->data);
+            free(tofree);
+            tofree = 0;
+         }
+
          addr.sin_addr.S_un.S_addr = pkt->addr;
          addr.sin_port = pkt->port;
          sendto(rdp->sock, (char*)pkt->data, pkt->sz, 0, (sockaddr*)&addr, sizeof(addr));
          pkt->tsent = ct;
+         pkt->rc++;
+         if (pkt->rc > rdp->mrc) {
+            mass_ll_rem((void**)&rdp->pkts, pkt);
+            tofree = pkt;
+            printf("[rdp:%x] (dropped) resend of %u to %x:%x\n", GetCurrentThreadId(), pkt->uid, pkt->addr, pkt->port);
+         }
       }
+      ++x;
    }
+
+   x = sizeof(addr);
+   getsockname(rdp->sock, (sockaddr*)&addr, &x);
+
+   //printf("[rdp:%x] id:%x port:%x no-ack:%u\n", GetCurrentThreadId(), addr.sin_addr.S_un.S_addr, addr.sin_port, x);
    
    return 0;
 }
@@ -44,6 +68,9 @@ int mass_rdp_create(MASS_RDP *rdp, uint32 laddr, uint16 *lport, uint32 blm, uint
    addr.sin_family = AF_INET;
    addr.sin_addr.S_un.S_addr = laddr;
    addr.sin_port = *lport;
+
+   // manually force it (testing)
+   rwt = 100;
    
    sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
    
@@ -56,6 +83,8 @@ int mass_rdp_create(MASS_RDP *rdp, uint32 laddr, uint16 *lport, uint32 blm, uint
    ioctlsocket(sock, FIONBIO, &iMode);
 
    *lport = addr.sin_port;
+   
+   printf("[rdp:%x] created on %x:%x\n", GetCurrentThreadId(), addr.sin_addr.S_un.S_addr, addr.sin_port);
 
    if (blm > 32)
       blm = 32;
@@ -68,6 +97,7 @@ int mass_rdp_create(MASS_RDP *rdp, uint32 laddr, uint16 *lport, uint32 blm, uint
    rdp->blm = blm;
    rdp->rwt = rwt;
    rdp->pkts = 0;
+   rdp->mrc = 10;
 
    memset(rdp->bl, 0, blm);
    return 1;
@@ -109,16 +139,23 @@ int mass_rdp_recvfrom(MASS_RDP *rdp, void *buf, uint16 sz, uint32 *_addr, uint16
             hdr->type = MASS_RDP_CONTROL;
             hdr->uid = uid;
             sendto(rdp->sock, (char*)hdr, sizeof(MASS_RDP_HDR), 0, (sockaddr*)&addr, addrsz);
-         
+            free(hdr);         
+
             // if we searched the entire backlog and found no match
             if (i >= rdp->blm) {
                // read the data and adjust in buffer
                memmove(buf, ((uint8*)buf) + sizeof(MASS_RDP_HDR), rsz - sizeof(MASS_RDP_HDR));
                // put id into the backlog (double send protection)
                rdp->bl[(rdp->bli++) & rdp->blm] = uid;
+               //printf("[rdp] (one) sending ack for %u\n", uid);
+               *_addr = addr.sin_addr.S_un.S_addr;
+               *_port = addr.sin_port;
                return rsz;
             }
+            *_addr = 0;
+            *_port = 0xcccc;
             // ignore duplicate packet
+            //printf("[rdp] (dup) sending ack for %u\n", uid);
             return 0;
          case MASS_RDP_CONTROL:
             // remove from sent packets
@@ -126,13 +163,19 @@ int mass_rdp_recvfrom(MASS_RDP *rdp, void *buf, uint16 sz, uint32 *_addr, uint16
             for (pkt = rdp->pkts; pkt != 0; pkt = (MASS_RDP_PKT*)mass_ll_next(pkt)) {
                if (pkt->uid == uid) {
                   mass_ll_rem((void**)&rdp->pkts, pkt);
-                  printf("[rdp] packet (%x) removed from outgoing log\n", uid);
+                  free(pkt->data);
+                  free(pkt);
+                  //printf("[rdp] packet (%x) removed from outgoing log\n", uid);
                   break;
                }
             }
 
+            // this happens when the sender sends another copy of the packet because
+            // it did not get an ack, and when the other socket is finally read both copies
+            // are found and it sends two acks and one ends up not finding a packet in
+            // the outgoing log.. so this is normal occurance sometimes
             if (pkt == 0) 
-               printf("[rdp] could not find packet (%x) in outgoing log\n", uid);
+               //printf("[rdp] could not find packet (%u) in outgoing log\n", uid);
             break;
       } // loop
    }
@@ -150,13 +193,16 @@ int mass_rdp_sendto(MASS_RDP *rdp, void *buf, uint16 sz, uint32 addr, uint16 por
    MASS_RDP_PKT   *pkt;
    clock_t        ct;
 
+   //printf("[rdp] sendto called <thread:%u>\n", GetCurrentThreadId());
+
    nbuf = malloc(sz + sizeof(MASS_RDP_HDR));
    hdr = (MASS_RDP_HDR*)nbuf;
 
+   // shove the payload up so we can write the header
+   memcpy(((uint8*)nbuf) + sizeof(MASS_RDP_HDR), buf, sz);
+
    hdr->type = MASS_RDP_DATA;
    hdr->uid = uid++;
-
-   memcpy(((uint8*)nbuf) + sizeof(MASS_RDP_HDR), buf, sz);
 
    _addr.sin_family = AF_INET;
    _addr.sin_addr.S_un.S_addr = addr;
@@ -170,6 +216,7 @@ int mass_rdp_sendto(MASS_RDP *rdp, void *buf, uint16 sz, uint32 addr, uint16 por
    pkt->uid = hdr->uid;
    pkt->addr = addr;
    pkt->port = port;
+   pkt->rc = 0;
    mass_ll_add((void**)&rdp->pkts, pkt);
    
    return sendto(rdp->sock, (char*)nbuf, sz + sizeof(MASS_RDP_HDR), 0, (sockaddr*)&_addr, sizeof(_addr));

@@ -243,6 +243,7 @@ int _tmain(int argc, _TCHAR* argv[])
    //CreateThread(NULL, 0, mass_auth_entry, 0, 0, NULL);
    //CreateThread(NULL, 0, mass_geo_entry, 0, 0, NULL);
 
+   ghostargs.iface = inet_addr("127.0.0.1");
    ghostargs.masterAddr = inet_addr("127.0.0.1");
    ghostargs.masterPort = 61230;
    ghostargs.servicePort = 61231;
@@ -252,7 +253,9 @@ int _tmain(int argc, _TCHAR* argv[])
    masterargs.servicePort = 61230;
    CreateThread(NULL, 0, mass_master_entry, &masterargs, 0, NULL);
 
-   for(;;);
+   for(;;) {
+      Sleep(1000);
+   }
 
 	return 0;
 }

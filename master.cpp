@@ -5,6 +5,7 @@
 #include "core.h"
 #include "packet.h"
 #include "linklist.h"
+#include "rdp.h"
 
 #define MASS_MASTER_MAXSERVICES           128
 
@@ -30,56 +31,36 @@ typedef struct _MASS_WAITINGENTITY {
    MASS_ENTITY                            entity;
 } MASS_WAITINGENTITY;
 
-void mass_master_childStart(SOCKET sock, MASS_MASTERSERVICE *mserv) {
+void mass_master_childStart(MASS_RDP *sock, MASS_MASTERSERVICE *mserv) {
    MASS_NEWSERVICE         pkt;
-   sockaddr_in             addr;
 
    pkt.hdr.type = MASS_NEWSERVICE_TYPE;
    pkt.hdr.length = sizeof(MASS_NEWSERVICE);
    // wait until it has actually started to link it into the chain of child services
    pkt.naddr = 0;
-   pkt.nport = 0;   
+   pkt.nport = 0;
 
-   addr.sin_addr.S_un.S_addr = mserv->addr;
-   addr.sin_port = mserv->port;
-   addr.sin_family = AF_INET;
-   
-   sendto(sock, (char*)&pkt, sizeof(MASS_NEWSERVICE), 0, (sockaddr*)&addr, sizeof(addr));
+   mass_rdp_sendto(sock, &pkt, sizeof(MASS_NEWSERVICE), mserv->addr, mserv->port);
    return;
 }
 
 DWORD WINAPI mass_master_entry(LPVOID arg) {
-   SOCKET                  sock;
-   sockaddr_in             addr;
-   int                     addrsz;
-   u_long                  iMode;
-   int                     err;
    MASS_MASTER_ARGS        *args;
    void                    *buf;
    MASS_PACKET             *pkt;
-   MASS_NEWSERVICE         *pktns;
-   MASS_MASTERPING         pktmp;
    MASS_MASTERSERVICE      *services;
    MASS_CHILDSERVICE       *cservices;
    MASS_WAITINGENTITY      *waitingEntities;
    time_t                  ct;
-   int                     f;
-   printf("master up\n");
+   MASS_RDP                sock;
+   uint32                  fromAddr;
+   uint16                  fromPort;
 
-   addrsz = sizeof(addr);
+   printf("master up\n");
 
    args = (MASS_MASTER_ARGS*)arg;
 
-   sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-
-   addr.sin_family = AF_INET;
-   addr.sin_addr.s_addr = args->ifaceaddr;
-   addr.sin_port = args->servicePort;
-   
-   iMode = 1;
-   ioctlsocket(sock, FIONBIO, &iMode);
-
-   err = bind(sock, (sockaddr*)&addr, sizeof(sockaddr));
+   mass_rdp_create(&sock, args->ifaceaddr, &args->servicePort, 9, 100);
 
    buf = malloc(0xffff);
 
@@ -104,7 +85,9 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
    }
 
    while (1) {
-      while (recvfrom(sock, (char*)buf, 0xffff, 0, (sockaddr*)&addr, &addrsz) > 0) {
+      Sleep(100);
+      mass_rdp_resend(&sock);
+      while (mass_rdp_recvfrom(&sock, buf, 0xffff, &fromAddr, &fromPort)> 0) {
          pkt = (MASS_PACKET*)buf;
          //printf("[master] pkt->type:%u\n", pkt->type);
          switch (pkt->type) {
@@ -112,9 +95,7 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
                printf("unknown:\n");
                break;
             case MASS_ENTITYADOPTREDIRECT_TYPE:
-               addr.sin_addr.S_un.S_addr = cservices->addr;
-               addr.sin_port = cservices->port;
-               sendto(sock, (char*)pkt, pkt->length, 0, (sockaddr*)&addr, sizeof(addr));               
+               mass_rdp_sendto(&sock, pkt, pkt->length, cservices->addr, cservices->port);
                break;
             case MASS_SMCHECK_TYPE:
                // send to child service chain (this just does the resolution of the
@@ -123,9 +104,7 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
                // turns out bad I might just do that as it could be less overhead..
                // im worried with the volume of traffic that might have to be funneled
                // here and thus make the scale factor lower of this system
-               addr.sin_addr.S_un.S_addr = cservices->addr;
-               addr.sin_port = cservices->port;
-               sendto(sock, (char*)pkt, pkt->length, 0, (sockaddr*)&addr, sizeof(addr));
+               mass_rdp_sendto(&sock, pkt, pkt->length, cservices->addr, cservices->port);
                break; 
             case MASS_ACCEPTENTITY_TYPE:
             {
@@ -174,9 +153,7 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
                      pktea.hdr.type = MASS_ENTITYADOPT_TYPE;
                      pktea.hdr.length = sizeof(MASS_ENTITYADOPT);
                      memcpy(&pktea.entity, &ptr->entity, sizeof(ptr->entity));
-                     addr.sin_addr.S_un.S_addr = pkteca->bestServiceID;
-                     addr.sin_port = pkteca->bestServicePort;
-                     sendto(sock, (char*)&pktea, sizeof(pktea), 0, (sockaddr*)&addr, sizeof(addr));
+                     mass_rdp_sendto(&sock, &pktea, sizeof(pktea), pkteca->bestServiceID, pkteca->bestServicePort);
                      printf("[master] send adopt entity to child\n");
                      break;
                   }
@@ -189,10 +166,11 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
             case MASS_SERVICEREADY_TYPE:
                MASS_SERVICEREADY          *pktsr;
                MASS_CHILDSERVICE          *csrv;
+               printf("[master] got MASS_SERVICEREADY_TYPE\n");
 
                // check if service already exists (caused by a crash restart)
                for (csrv = cservices; csrv != 0; csrv = (MASS_CHILDSERVICE*)mass_ll_next(csrv)) {
-                  if (csrv->addr == addr.sin_addr.S_un.S_addr && csrv->port == addr.sin_port) {
+                  if (csrv->addr == fromAddr && csrv->port == fromPort) {
                      printf("[master] (ignoring) possible child crash restart %x\n", csrv->addr);
                      break;
                   }
@@ -213,11 +191,11 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
                   pktcs.naddr = 0;
                   pktcs.nport = 0;
                }
-               sendto(sock, (char*)&pktcs, sizeof(pktcs), 0, (sockaddr*)&addr, sizeof(addr));
+               mass_rdp_sendto(&sock, &pktcs, sizeof(pktcs), fromAddr, fromPort);
 
                csrv = (MASS_CHILDSERVICE*)malloc(sizeof(MASS_CHILDSERVICE));
-               csrv->addr = addr.sin_addr.S_un.S_addr;
-               csrv->port = addr.sin_port;
+               csrv->addr = fromAddr;
+               csrv->port = fromPort;
                
                mass_ll_add((void**)&cservices, csrv);               
 
@@ -230,7 +208,7 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
 
                // do we already have an entry?
                for (msptr = services; msptr != 0; msptr = (MASS_MASTERSERVICE*)mass_ll_next(msptr)) {
-                  if (msptr->addr == addr.sin_addr.S_un.S_addr && msptr->port == addr.sin_port) {
+                  if (msptr->addr == fromAddr && msptr->port == fromPort) {
                      // yes, then update last ping time
                      msptr->lping = ct;
                      //printf("[master] ping from game service %x\n", msptr->addr);
@@ -242,13 +220,13 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
                if (msptr == 0) {
                   // no, then add it
                   msptr = (MASS_MASTERSERVICE*)malloc(sizeof(MASS_MASTERSERVICE));
-                  msptr->addr = addr.sin_addr.S_un.S_addr;
-                  msptr->port = addr.sin_port;
+                  msptr->addr = fromAddr;
+                  msptr->port = fromPort;
                   msptr->lping = ct;
                   mass_ll_add((void**)&services, msptr);
                   printf("[master] new game service %x\n", msptr->addr);
                   // also, start up ONE child service
-                  mass_master_childStart(sock, services);
+                  mass_master_childStart(&sock, services);
                }
                break;
          }
@@ -291,9 +269,7 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
                pkteca.x = ptr->entity.ly;
                pkteca.x = ptr->entity.lz;
 
-               addr.sin_addr.S_un.S_addr = cservices->addr;
-               addr.sin_port = cservices->port;
-               sendto(sock, (char*)&pkteca, sizeof(pkteca), 0, (sockaddr*)&addr, sizeof(addr));
+               mass_rdp_sendto(&sock, &pkteca, sizeof(pkteca), cservices->addr, cservices->port);
                printf("[master] send entity adopt for entity %x\n", ptr->entity.entityID);
 
                ptr->sent = 1;

@@ -15,7 +15,6 @@ DWORD WINAPI mass_ghost_entry(void *arg) {
    // ... [not implemented] ...
 
    // ...
-   SOCKET                  sock;
    sockaddr_in             addr;
    int                     addrsz;
    u_long                  iMode;
@@ -26,26 +25,21 @@ DWORD WINAPI mass_ghost_entry(void *arg) {
    MASS_PACKET             *pkt;
    MASS_NEWSERVICE         *pktns;
    MASS_MASTERPING         pktmp;
+   uint32                  fromAddr;
+   uint16                  fromPort;
+   MASS_RDP                sock;
+   int                     so = 0;   // debugging [remove implementation]!!!
 
    addrsz = sizeof(addr);
 
    args = (MASS_GHOST_ARGS*)arg;
 
-   sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-
-   addr.sin_family = AF_INET;
-   addr.sin_addr.s_addr = inet_addr("0.0.0.0");
-   addr.sin_port = args->servicePort;
+   mass_rdp_create(&sock, args->iface, &args->servicePort, 9, 100);
    
-   iMode = 1;
-   ioctlsocket(sock, FIONBIO, &iMode);
-
-   err = bind(sock, (sockaddr*)&addr, sizeof(sockaddr));
-
    buf = malloc(0xffff);
 
    while (1) {
-     while (recvfrom(sock, (char*)buf, 0xffff, 0, (sockaddr*)&addr, &addrsz) > 0) {
+     while (mass_rdp_recvfrom(&sock, buf, 0xffff, &fromAddr, &fromPort) > 0) {
          pkt = (MASS_PACKET*)buf;
          switch (pkt->type) {
             case MASS_NEWSERVICE_TYPE:
@@ -58,8 +52,8 @@ DWORD WINAPI mass_ghost_entry(void *arg) {
                   // get the child to listen on the same interface as we do
                   cargs->ifaceaddr = args->masterAddr;
                   // give reply address and port
-                  cargs->suraddr = addr.sin_addr.S_un.S_addr;
-                  cargs->surport = addr.sin_port;
+                  cargs->suraddr = fromAddr;
+                  cargs->surport = fromPort;
                   // create the service and let it startup
                   CreateThread(NULL, 0, mass_ghost_child, cargs, 0, NULL);
                   break;
@@ -71,16 +65,17 @@ DWORD WINAPI mass_ghost_entry(void *arg) {
       pktmp.hdr.length = sizeof(pktmp);
       pktmp.hdr.type = MASS_MASTERPING_TYPE;
 
-      // send a periodic ping to the master to let it know we are still alive
-      addr.sin_addr.S_un.S_addr = args->masterAddr;
-      addr.sin_port = args->masterPort;
-      sendto(sock, (char*)&pktmp, sizeof(pktmp), 0, (sockaddr*)&addr, addrsz);      
+      if (so == 0) {
+         // send a periodic ping to the master to let it know we are still alive
+         mass_rdp_sendto(&sock, &pktmp,sizeof(pktmp), args->masterAddr, args->masterPort);      
+         so = 1;
+      }
   }
    
    return 0;
 }
 
-void mass_ghost_sm(SOCKET sock, MASS_ENTITYCHAIN *entities, uint32 masterID, uint16 masterPort) {
+void mass_ghost_sm(MASS_RDP *sock, MASS_ENTITYCHAIN *entities, uint32 masterID, uint16 masterPort, uint32 localID, uint16 localPort) {
    // calculate averagedcenter point of entities
    f64            ax, ay, az;
    MASS_ENTITY    *ce;
@@ -110,28 +105,21 @@ void mass_ghost_sm(SOCKET sock, MASS_ENTITYCHAIN *entities, uint32 masterID, uin
    //    2.b. if smaller then do nothing and eventually they should try to send them to us
    
    MASS_SMCHECK           smc;
-   sockaddr_in            addr;
    int                    addrsz;
-
-   addrsz = sizeof(addr);
-   getsockname(sock, (sockaddr*)&addr, &addrsz);
    
    smc.hdr.length = sizeof(MASS_SMCHECK);
    smc.hdr.type = MASS_SMCHECK_TYPE;
-   smc.askingID = addr.sin_addr.S_un.S_addr;
-   smc.askingPort = addr.sin_port;
+   smc.askingID = localID;
+   smc.askingPort = localPort;
    smc.irange = MASS_INTERACT_RANGE;
    smc.x = ax;
    smc.y = ay;
    smc.z = az;
 
-   addr.sin_addr.S_un.S_addr = masterID;
-   addr.sin_port = masterPort;   
-
-   sendto(sock, (char*)&smc, sizeof(MASS_SMCHECK), 0, (sockaddr*)&addr, sizeof(addr));
+   mass_rdp_sendto(sock, &smc, sizeof(MASS_SMCHECK), masterID, masterPort);
 }
 
-void mass_ghost_gb(SOCKET sock, MASS_ENTITYCHAIN *entities, uint32 masterID, uint16 masterPort) {
+void mass_ghost_gb(MASS_RDP *sock, MASS_ENTITYCHAIN *entities, uint32 masterID, uint16 masterPort) {
    // calculate averagedcenter point of entities
    f64            ax, ay, az;
    MASS_ENTITY    *ce;
@@ -153,11 +141,6 @@ void mass_ghost_gb(SOCKET sock, MASS_ENTITYCHAIN *entities, uint32 masterID, uin
    az = az / ecnt;
 
    MASS_ENTITYADOPT           pktea;
-   sockaddr_in                addr;
-
-   addr.sin_family = AF_INET;
-   addr.sin_port = masterPort;
-   addr.sin_addr.S_un.S_addr = masterID;
 
    pktea.hdr.type = MASS_ENTITYADOPTREDIRECT_TYPE;
    pktea.hdr.length = sizeof(MASS_ENTITYADOPT);
@@ -174,7 +157,7 @@ void mass_ghost_gb(SOCKET sock, MASS_ENTITYCHAIN *entities, uint32 masterID, uin
          // note to self: (game story/term) space drift is the phenominia that occurs in this system
          //               invisible atomic forces in deep space that stretch space and time
          memcpy(&pktea.entity, ce, sizeof(MASS_ENTITY));
-         sendto(sock, (char*)&pktea, sizeof(MASS_ENTITYADOPT), 0, (sockaddr*)&addr, sizeof(addr));
+         mass_rdp_sendto(sock, &pktea, sizeof(MASS_ENTITYADOPT), masterID, masterPort);
       }
    }
 }
@@ -220,12 +203,14 @@ DWORD WINAPI mass_ghost_child(void *arg) {
    MASS_ENTITYCHAIN        *entities;
    MASS_RDP                sock;
 
+   args = (MASS_GHOSTCHILD_ARGS*)arg;
+
+   servicePort = 0;  
+
    mass_rdp_create(&sock, args->ifaceaddr, &servicePort, 10, 100);   
 
    entities = 0;
    entityCount = 0;
-
-   args = (MASS_GHOSTCHILD_ARGS*)arg;
 
    addrsz = sizeof(addr);
 
@@ -234,17 +219,15 @@ DWORD WINAPI mass_ghost_child(void *arg) {
    // reply that we have completed startup so we can be considered active and part of the chain
    sr.hdr.length = sizeof(MASS_SERVICEREADY);
    sr.hdr.type = MASS_SERVICEREADY_TYPE;
-   servicePort = addr.sin_port;
-   printf("[child] child service started %x:%x (%x:%x)\n", addr.sin_addr.S_un.S_addr, addr.sin_port, args->suraddr, args->surport);
+   printf("[child] child service started %x:%x <%x:%x>\n", args->ifaceaddr, servicePort, args->suraddr, args->surport);
    // send the reply
-   addr.sin_addr.S_un.S_addr = args->suraddr;
-   addr.sin_port = args->surport;
    mass_rdp_sendto(&sock, &sr, sizeof(MASS_SERVICEREADY), args->suraddr, args->surport);
 
    lgb = 0;
    lsm = 0;
 
    while (1) {
+      mass_rdp_resend(&sock);
       // do duties needed for hosting of entities (sending updates to clients... etc)
       // 1. update entity positions
       for (MASS_ENTITYCHAIN *ec = entities; ec != 0; ec = (MASS_ENTITYCHAIN*)mass_ll_next(ec)) {
@@ -273,7 +256,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
       time(&ct);
 
       if (ct - lgb > 5000) {
-         mass_ghost_gb(sock, entities, args->suraddr, args->surport);
+         //mass_ghost_gb(&sock, entities, args->suraddr, args->surport);
       }
 
       // lsm (last server merge)
@@ -282,7 +265,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
          // 2. check with other childs if we overlap their own interaction area
          // 3. pick largest (not full) child and start adopting entities into it until it is full or we are empty 
       if (ct - lsm > 5000) {
-         mass_ghost_sm(sock, entities, args->suraddr, args->surport);
+         //mass_ghost_sm(&sock, entities, args->suraddr, args->surport, args->ifaceaddr, servicePort);
       }
 
       while (mass_rdp_recvfrom(&sock, buf, 0xffff, &fromAddr, &fromPort)) {
@@ -327,7 +310,6 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                MASS_ENTITYADOPT      pktae;
 
                pktsmr = (MASS_SMREPLY*)pkt;
-               
                // send entities to them and mark them as locked until we get an accept or reject
                pktae.hdr.type = MASS_ENTITYADOPT_TYPE;
                pktae.hdr.length = sizeof(MASS_ENTITYADOPT);
@@ -340,7 +322,8 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                      ec->entity.flags |= MASS_ENTITY_LOCKED;
                   }
                   // send it to the sender (addr already set from recvfrom call)
-                  sendto(sock, (char*)&pktae, sizeof(MASS_ENTITYADOPT), 0, (sockaddr*)&addr, sizeof(addr));
+                  //sendto(sock, (char*)&pktae, sizeof(MASS_ENTITYADOPT), 0, (sockaddr*)&addr, sizeof(addr));
+                  mass_rdp_sendto(&sock, &pktae, sizeof(MASS_ENTITYADOPT), fromAddr, fromPort);
                }
                break;
             case MASS_CHGSERVICENXT_TYPE:
@@ -363,8 +346,8 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                MASS_ENTITYADOPTREDIRECT   *pktear;
 
                pktear = (MASS_ENTITYADOPTREDIRECT*)pkt;
-               addr.sin_addr.S_un.S_addr = pktear->replyID;
-               addr.sin_port = pktear->replyPort;
+               fromAddr = pktear->replyID;
+               fromPort = pktear->replyPort;
             case MASS_ENTITYADOPT_TYPE:
                MASS_ENTITYADOPT           *pktea;
                MASS_ENTITYCHAIN           *ec;
@@ -385,8 +368,14 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                   pktre.hdr.type = MASS_REJECTENTITY_TYPE;
                   pktre.hdr.length = sizeof(MASS_REJECTENTITY);
                   
-                  sendto(sock, (char*)&pktre, sizeof(MASS_REJECTENTITY), 0, (sockaddr*)&addr, sizeof(addr)); 
+                  mass_rdp_sendto(&sock, &pktre, sizeof(MASS_REJECTENTITY), fromAddr, fromPort);
                   break;
+               }
+
+               // if this is our first entity it means we WERE the IDLE thread, so let us create one
+               // to replace this thread 
+               if (entities == 0) {
+                  CreateThread(NULL, 0, mass_ghost_child, args, 0, NULL);
                }
 
                ec = (MASS_ENTITYCHAIN*)malloc(sizeof(MASS_ENTITYCHAIN));
@@ -402,8 +391,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                   pktae.hdr.type = MASS_ACCEPTENTITY_TYPE;
                   pktae.hdr.length = sizeof(MASS_ACCEPTENTITY);
                   
-                  sendto(sock, (char*)&pktae, sizeof(MASS_ACCEPTENTITY), 0, (sockaddr*)&addr, sizeof(addr)); 
-
+                  mass_rdp_sendto(&sock, &pktae, sizeof(MASS_ACCEPTENTITY), fromAddr, fromPort);
                   ++entityCount;
                }
                break;
@@ -426,17 +414,14 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                      pktca->bestDistance = MASS_INTERACT_RANGE + 1;
                      if (args->naddr == 0) {
                         printf("[child] (IDLE) sending check adopt back to asking service\n");
-                        addr.sin_addr.S_un.S_addr = pktca->askingServiceID;
-                        addr.sin_port = pktca->askingServicePort;
+                        fromAddr = pktca->askingServiceID;
+                        fromPort = pktca->askingServicePort;
                      } else {
                         printf("[child] (IDLE) sending check adopt to next child service\n");
-                        addr.sin_addr.S_un.S_addr = args->naddr;
-                        addr.sin_port = args->nport;
+                        fromAddr = args->naddr;
+                        fromPort = args->nport;
                      }
-                     sendto(sock, (char*)pktca, sizeof(MASS_ENTITYCHECKADOPT), 0, (sockaddr*)&addr, addrsz);
-                     // also startup another idle instance of child game host to replace this one; we
-                     // always need at least one idle instance to help grab entities that are far away on their own
-                     CreateThread(NULL, 0, mass_ghost_child, args, 0, NULL);
+                     mass_rdp_sendto(&sock, pktca, sizeof(MASS_ENTITYCHECKADOPT), fromAddr, fromPort);
                      break;
                   }
                   // 0. do we have room for another entity?
@@ -450,7 +435,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                      // pass the packet onward
                      addr.sin_addr.S_un.S_addr = args->naddr;
                      addr.sin_port = args->nport;
-                     sendto(sock, (char*)pktca, sizeof(MASS_ENTITYCHECKADOPT), 0, (sockaddr*)&addr, addrsz);
+                     mass_rdp_sendto(&sock, pktca, sizeof(MASS_ENTITYCHECKADOPT), fromAddr, fromPort);
                      break;
                   }
                   // 1. check if entity is with-in interaction range of one existing entities
@@ -470,18 +455,18 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                // 3. send packet to next service in chain (or back to asking service)
                if (args->naddr == 0) {
                   printf("[child] sending check adopt back to asking service\n");
-                  addr.sin_addr.S_un.S_addr = pktca->askingServiceID;
-                  addr.sin_port = pktca->askingServicePort;
+                  fromAddr = pktca->askingServiceID;
+                  fromPort = pktca->askingServicePort;
                } else {
                   printf("[child] sending check adopt to next child service\n");
-                  addr.sin_addr.S_un.S_addr = args->naddr;
-                  addr.sin_port = args->nport;
+                  fromAddr = args->naddr;
+                  fromPort = args->nport;
                }
-               sendto(sock, (char*)pktca, sizeof(MASS_ENTITYCHECKADOPT), 0, (sockaddr*)&addr, addrsz);
+               mass_rdp_sendto(&sock, pktca, sizeof(MASS_ENTITYCHECKADOPT), fromAddr, fromPort);
                break;
          }
       }
-      
+      Sleep(1000);
    }   
    
    return 0;

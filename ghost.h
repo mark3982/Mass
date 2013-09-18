@@ -6,6 +6,7 @@ typedef struct _MASS_GHOST_ARGS {
    uint32            masterAddr;
    uint16            masterPort;
    uint16            servicePort;
+   uint32            iface;
 } MASS_GHOST_ARGS;
 
 typedef struct _MASS_GHOSTCHILD_ARGS {

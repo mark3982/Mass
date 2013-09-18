@@ -11,6 +11,7 @@ typedef struct _MASS_RDP_PKT {
    uint16                  sz;               // size in bytes of data
    uint32                  tsent;            // time sent (internal)
    uint32                  uid;              // unique identifier (internal)
+   uint32                  rc;               // resend count (count before just giving up)
 } MASS_RDP_PKT;
 
 typedef struct _MASS_RDP {
@@ -19,6 +20,7 @@ typedef struct _MASS_RDP {
    uint32            bli;                    // backlog index
    uint32            blm;                    // backlog mask (or backlog size)
    uint32            rwt;                    // resend wait time
+   uint32            mrc;                    // max resend count
    MASS_RDP_PKT      *pkts;
 } MASS_RDP;
 
