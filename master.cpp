@@ -254,6 +254,12 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
                MASS_ENTITYCHECKADOPT      pkteca;
 
                // if already sent just ignore it (need a timeout value)
+               // TODO: TIMEOUT VALUE FOR EACH ENTRY!! OR FIX WAY SYS WORKS!!
+               // problem: if there is no idle service or service with in 
+               // interaction range then this never gets sent again.. might
+               // actually want to wait for the ACCEPT/REJECT send for adopt
+               // entity packet and RESET ptr->send inside of those blocks..
+               // also might have to add eid field to ACCEPT/REJECT packets!!
                if (ptr->sent > 0)
                   continue;               
 

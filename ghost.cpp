@@ -199,11 +199,14 @@ DWORD WINAPI mass_ghost_child(void *arg) {
     int                     x;
    uint32                  fromAddr;
    uint16                  fromPort;
+   int                     x_firstadopt; // bad hackery
 
    MASS_ENTITYCHAIN        *entities;
    MASS_RDP                sock;
 
    args = (MASS_GHOSTCHILD_ARGS*)arg;
+
+   x_firstadopt = 0;
 
    servicePort = 0;  
 
@@ -406,7 +409,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                printf("[child] got check adopt for entity %x\n", pktca->entityID);
                {
                   // -1. do we have ANY entities and has this entity not been within interaction range
-                  if (pktca->bestServiceID == 0 && entities == 0) {
+                  if (pktca->bestServiceID == 0 && entities == 0 && x_firstadopt == 0) {
                      // ok claim this entity but allow it to be claimed by a service that has other
                      // entities if possible; but if not we will be able to claim the entity
                      pktca->bestServiceID = args->ifaceaddr;
@@ -421,6 +424,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                         fromAddr = args->naddr;
                         fromPort = args->nport;
                      }
+                     x_firstadopt = 1;
                      mass_rdp_sendto(&sock, pktca, sizeof(MASS_ENTITYCHECKADOPT), fromAddr, fromPort);
                      break;
                   }
