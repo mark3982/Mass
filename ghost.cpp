@@ -101,11 +101,14 @@ void mass_ghost_gb(MASS_RDP *sock, MASS_ENTITYCHAIN *entities, uint32 masterID, 
          //               invisible atomic forces in deep space that stretch space and time
 
          /* fill required fields and send packet */
-         pktca.entityID = cec->entity.entityID;
-         pktca.x = cec->entity.lx;
-         pktca.y = cec->entity.ly;
-         pktca.z = cec->entity.lz;
-         mass_rdp_sendto(sock, &pktca, sizeof(MASS_ENTITYADOPT), masterID, masterPort);
+         if (cec->entity.flags & MASS_ENTITY_LOCKED == 0) {
+            pktca.entityID = cec->entity.entityID;
+            pktca.x = cec->entity.lx;
+            pktca.y = cec->entity.ly;
+            pktca.z = cec->entity.lz;
+            cec->entity.flags |= MASS_ENTITY_LOCKED;
+            mass_rdp_sendto(sock, &pktca, sizeof(MASS_ENTITYADOPT), masterID, masterPort);
+         }
       }
    }
 }
@@ -228,7 +231,8 @@ DWORD WINAPI mass_ghost_child(void *arg) {
             /* check for entities outside domain interaction range limit */
             if (ct - cd->lgb > 5000) {
                cd->lgb = ct;
-               //mass_ghost_gb(&sock, cd->entities, args->suraddr, args->surport);
+               printf("[child:%x:%x] doing group break..\n", args->ifaceaddr, servicePort);
+               mass_ghost_gb(&sock, cd->entities, args->suraddr, args->surport, args->ifaceaddr, servicePort, cd->dom);
             }
             
             /* check for server merge */
