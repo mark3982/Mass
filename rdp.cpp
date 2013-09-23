@@ -16,6 +16,7 @@ int mass_rdp_resend(MASS_RDP *rdp) {
    sockaddr_in          addr;
    int                  x;
    MASS_RDP_PKT         *tofree;
+   int                  err;
 
    ct = clock();
 
@@ -24,7 +25,7 @@ int mass_rdp_resend(MASS_RDP *rdp) {
    tofree = 0;
    x = 0;
    for (MASS_RDP_PKT *pkt = rdp->pkts, *last = 0; pkt != 0; last = pkt, pkt = (MASS_RDP_PKT*)mass_ll_next(pkt)) {
-      if (ct - pkt->tsent > rdp->rwt * 10) {
+      if (ct - pkt->tsent > rdp->rwt) {
          // resend
          //printf("[rdp:%x] resend of %u to %x:%x\n", GetCurrentThreadId(), pkt->uid, pkt->addr, pkt->port);
 
@@ -36,13 +37,16 @@ int mass_rdp_resend(MASS_RDP *rdp) {
 
          addr.sin_addr.S_un.S_addr = pkt->addr;
          addr.sin_port = pkt->port;
-         sendto(rdp->sock, (char*)pkt->data, pkt->sz, 0, (sockaddr*)&addr, sizeof(addr));
+         err = sendto(rdp->sock, (char*)pkt->data, pkt->sz, 0, (sockaddr*)&addr, sizeof(addr));
+         if (err < 0) {
+            printf("err:%i code:%i\n", err, GetLastError());
+         }
          pkt->tsent = ct;
          pkt->rc++;
          if (pkt->rc > rdp->mrc) {
             mass_ll_rem((void**)&rdp->pkts, pkt);
             tofree = pkt;
-            printf("[rdp:%x] (dropped) resend of %u to %x:%x\n", GetCurrentThreadId(), pkt->uid, pkt->addr, pkt->port);
+            printf("[rdp:%x] (dropped) resend after %u retries of %u to %x:%x\n", GetCurrentThreadId(), pkt->rc, pkt->uid, pkt->addr, pkt->port);
          }
       }
       ++x;
@@ -70,7 +74,7 @@ int mass_rdp_create(MASS_RDP *rdp, uint32 laddr, uint16 *lport, uint32 blm, uint
    addr.sin_port = *lport;
 
    // manually force it (testing)
-   rwt = 100;
+   rwt = 1000;
    
    sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
    
@@ -163,9 +167,10 @@ int mass_rdp_recvfrom(MASS_RDP *rdp, void *buf, uint16 sz, uint32 *_addr, uint16
             for (pkt = rdp->pkts; pkt != 0; pkt = (MASS_RDP_PKT*)mass_ll_next(pkt)) {
                if (pkt->uid == uid) {
                   mass_ll_rem((void**)&rdp->pkts, pkt);
+                  if (pkt->rc > 1)
+                     printf("[rdp] packet took %u resends to %x:%x\n", pkt->rc, pkt->addr, pkt->port);
                   free(pkt->data);
                   free(pkt);
-                  //printf("[rdp] packet (%x) removed from outgoing log\n", uid);
                   break;
                }
             }
@@ -192,8 +197,7 @@ int mass_rdp_sendto(MASS_RDP *rdp, void *buf, uint16 sz, uint32 addr, uint16 por
    sockaddr_in    _addr;
    MASS_RDP_PKT   *pkt;
    clock_t        ct;
-
-   //printf("[rdp] sendto called <thread:%u>\n", GetCurrentThreadId());
+   int            err;
 
    nbuf = malloc(sz + sizeof(MASS_RDP_HDR));
    hdr = (MASS_RDP_HDR*)nbuf;
@@ -218,6 +222,11 @@ int mass_rdp_sendto(MASS_RDP *rdp, void *buf, uint16 sz, uint32 addr, uint16 por
    pkt->port = port;
    pkt->rc = 0;
    mass_ll_add((void**)&rdp->pkts, pkt);
-   
-   return sendto(rdp->sock, (char*)nbuf, sz + sizeof(MASS_RDP_HDR), 0, (sockaddr*)&_addr, sizeof(_addr));
+
+   err = sendto(rdp->sock, (char*)nbuf, sz + sizeof(MASS_RDP_HDR), 0, (sockaddr*)&_addr, sizeof(_addr));
+
+   if (err < 0) {
+		printf("[rdp] err:%i\n", err);
+   }
+   return err;
 }

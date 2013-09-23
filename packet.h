@@ -28,6 +28,7 @@ typedef struct _MASS_SMCHECK {
    MASS_PACKET       hdr;
    uint32            askingID;               // ip/id for sender
    uint16            askingPort;             // port for sender
+   uint16            askingDom;              // the domain id of who is asking (sender)
    f64               x, y, z;                // averaged center position for sender
    f64               irange;                 // interaction range for sender
    uint32            entityCnt;              // entity count for sender
@@ -37,17 +38,20 @@ typedef struct _MASS_SMREPLY {
    MASS_PACKET       hdr;
    uint32            replyID;                // (sender) id of server to merge with
    uint32            replyPort;              // (sender) port of server to merge with
+   uint16            replyDom;               // (sender) the dom that will merge
+   uint16            checkingDom;            // the dom id of the checker (who issued the SMCHECK)
    uint32            maxCount;               // (sender) maximum number of entities that can be merged at this time
 } MASS_SMREPLY;
 
-
 typedef struct _MASS_ACCEPTENTITY {
    MASS_PACKET       hdr;
+   uint16            dom;
    ENTITYID          eid;
 } MASS_ACCEPTENTITY;
 
 typedef struct _MASS_REJECTENTITY {
    MASS_PACKET       hdr;
+   uint16            dom;
    ENTITYID          eid;
 } MASS_REJECTENTITY;
 
@@ -57,18 +61,27 @@ typedef struct _MASS_MASTERPING {
 
 typedef struct _MASS_ENTITYCHECKADOPT {
    MASS_PACKET       hdr;
-   ENTITYID          entityID;
-   uint32            askingServiceID;           // the IP of the service asking
-   uint16            askingServicePort;         // the port for the asking service
-   uint32            bestServiceID;             // starts at 0 (means not yet set)
-   uint16            bestServicePort;           // 
-   f64               bestDistance;              // starts at -1 (means not yet set)
-   uint64            zoneID;                    // zone 0 is space and other zones are references to planet zones
-   f64               x, y, z;
+   ENTITYID          entityID;                  /* entity ID */
+   uint32            askingServiceID;           /* asking service id/ip */
+   uint16            askingServicePort;         /* asking service port */
+   uint16            askingServiceDom;          /* asking service domain */
+   /* best service that has other entities */
+   uint32            bestServiceID;             /* best service id/ip (default zero) */
+   uint16            bestServicePort;           /* best service port */
+   uint16            bestServiceDom;            /* best service domain */
+   f64               bestDistance;              /* best distance */
+   uint64            zoneID;                    /* unused */
+   /* service with lowest CPU usage */
+   uint32            bestCPUID;
+   uint16            bestCPUPort;
+   uint16            bestCPUScore;
+   f64               x, y, z;                   /* position of entity in global space */
 } MASS_ENTITYCHECKADOPT;
 
 typedef struct _MASS_ENTITYADOPT {
    MASS_PACKET       hdr;
+   uint16            dom;
+   uint16            fromDom;
    MASS_ENTITY       entity;
 } MASS_ENTITYADOPT; 
 
@@ -76,6 +89,7 @@ typedef struct _MASS_ENTITYADOPTREDIRECT {
    MASS_ENTITYADOPT  hdr;
    uint32            replyID;
    uint32            replyPort;
+   uint32            replyDom;
 } MASS_ENTITYADOPTREDIRECT;
 
 typedef struct _MASS_CHGSERVICENXT {

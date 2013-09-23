@@ -24,9 +24,9 @@ void mass_geo_generate_space(SPACECHUNK *chunk, uint32 seed) {
 
 
    // generate astroids
-   srand(chunk->x);
-   srand(rand() * chunk->y);
-   srand(rand() * chunk->z);
+   //srand(chunk->x);
+   //srand(rand() * chunk->y);
+   //srand(rand() * chunk->z);
 }
 
 /*
@@ -203,8 +203,9 @@ DWORD WINAPI mass_geo_entry(void *arg) {
 int _tmain(int argc, _TCHAR* argv[])
 {
    WSADATA                 wsaData;
-   MASS_GHOST_ARGS         ghostargs;
+
    MASS_MASTER_ARGS        masterargs;
+   MASS_GHOSTCHILD_ARGS    childargs[2];
 
    WSAStartup(MAKEWORD(2, 2), &wsaData);
 
@@ -243,12 +244,20 @@ int _tmain(int argc, _TCHAR* argv[])
    //CreateThread(NULL, 0, mass_auth_entry, 0, 0, NULL);
    //CreateThread(NULL, 0, mass_geo_entry, 0, 0, NULL);
 
-   ghostargs.iface = inet_addr("127.0.0.1");
-   ghostargs.masterAddr = inet_addr("127.0.0.1");
-   ghostargs.masterPort = 61230;
-   ghostargs.servicePort = 61231;
-   CreateThread(NULL, 0, mass_ghost_entry, &ghostargs, 0, NULL);
-   
+   childargs[0].ifaceaddr = inet_addr("127.0.0.1");
+   childargs[0].naddr = 0;
+   childargs[0].nport = 0;
+   childargs[0].suraddr = inet_addr("127.0.0.1");
+   childargs[0].surport = 61230;
+   CreateThread(NULL, 0, mass_ghost_child, &childargs[0], 0, NULL);
+
+   childargs[1].ifaceaddr = inet_addr("127.0.0.1");
+   childargs[1].naddr = 0;
+   childargs[1].nport = 0;
+   childargs[1].suraddr = inet_addr("127.0.0.1");
+   childargs[1].surport = 61230;
+   CreateThread(NULL, 0, mass_ghost_child, &childargs[1], 0, NULL);
+
    masterargs.ifaceaddr = inet_addr("127.0.0.1");
    masterargs.servicePort = 61230;
    CreateThread(NULL, 0, mass_master_entry, &masterargs, 0, NULL);

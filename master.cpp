@@ -73,6 +73,7 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
       MASS_WAITINGENTITY      *we;
       
       we = (MASS_WAITINGENTITY*)malloc(sizeof(MASS_WAITINGENTITY));
+      memset(&we->entity, 0, sizeof(MASS_ENTITY));
       we->entity.entityID = x;
       we->entity.innerEntityCnt = 0;
       we->entity.lx = RANDFP() * 100.0f;
@@ -85,8 +86,10 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
    }
 
    while (1) {
-      Sleep(100);
+      Sleep(10);
+
       mass_rdp_resend(&sock);
+
       while (mass_rdp_recvfrom(&sock, buf, 0xffff, &fromAddr, &fromPort)> 0) {
          pkt = (MASS_PACKET*)buf;
          //printf("[master] pkt->type:%u\n", pkt->type);
@@ -139,9 +142,12 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
                break;
             }
             case MASS_ENTITYCHECKADOPT_TYPE:
-               // at this point we have already sent the entity check adopt packet into the child chain
-               // and all children have processed it and now the result has arrived and after inspecting
-               // the result we will actually send the adopt packet for the best child to adopt the entity
+               /*
+                  at this point the entity check adopt has returned and has went through all of the
+                  child services registered to us as master; either we found a suitable match based
+                  on the entity being with-in interaction range OR we have found the best child (
+                  lowest CPU load) to create a new domain on
+               */
                MASS_ENTITYCHECKADOPT      *pkteca;
                MASS_ENTITYADOPT           pktea;               
                MASS_WAITINGENTITY         *ptr;
@@ -153,8 +159,23 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
                      pktea.hdr.type = MASS_ENTITYADOPT_TYPE;
                      pktea.hdr.length = sizeof(MASS_ENTITYADOPT);
                      memcpy(&pktea.entity, &ptr->entity, sizeof(ptr->entity));
-                     mass_rdp_sendto(&sock, &pktea, sizeof(pktea), pkteca->bestServiceID, pkteca->bestServicePort);
-                     printf("[master] send adopt entity to child\n");
+
+					      /* this dom never exists because zero is treated as special */
+					      pktea.fromDom = 0;
+
+                     /*
+                        determine if existing domain will adopt or we need to create a new domain on
+                        the child service that has the lowest CPU load
+                     */
+                     if (pkteca->bestServiceID != 0) {
+                        pktea.dom = pkteca->bestServiceDom;
+                        mass_rdp_sendto(&sock, &pktea, sizeof(pktea), pkteca->bestServiceID, pkteca->bestServicePort);
+                        printf("[master] sent adopt entity to existing domain [%x:%x:%x]\n", pkteca->bestServiceID, pkteca->bestServicePort, pkteca->bestServiceDom);
+                     } else {
+                        pktea.dom = 0;
+                        mass_rdp_sendto(&sock, &pktea, sizeof(pktea), pkteca->bestCPUID, pkteca->bestCPUPort);
+                        printf("[master] sent adopt entity to new domain [%x:%x] with score %x\n", pkteca->bestCPUID, pkteca->bestCPUPort, pkteca->bestCPUScore);
+                     }
                      break;
                   }
                }
@@ -270,10 +291,13 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
                pkteca.bestDistance = MASS_INTERACT_RANGE * 2;
                pkteca.bestServiceID = 0;
                pkteca.bestServicePort = 0;
+               pkteca.bestCPUID = 0;
+               pkteca.bestCPUPort = 0;
+               pkteca.bestCPUScore = 0;
                pkteca.entityID = ptr->entity.entityID;
                pkteca.x = ptr->entity.lx;
-               pkteca.x = ptr->entity.ly;
-               pkteca.x = ptr->entity.lz;
+               pkteca.y = ptr->entity.ly;
+               pkteca.z = ptr->entity.lz;
 
                mass_rdp_sendto(&sock, &pkteca, sizeof(pkteca), cservices->addr, cservices->port);
                printf("[master] send entity adopt for entity %x\n", ptr->entity.entityID);
