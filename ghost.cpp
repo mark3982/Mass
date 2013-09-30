@@ -452,6 +452,8 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                   pktear = (MASS_ENTITYADOPTREDIRECT*)pkt;
                   fromAddr = pktear->replyID;
                   fromPort = pktear->replyPort;
+               case MASS_ENTITYCHECKADOPT2_TYPE:
+                  break;
                case MASS_ENTITYCHECKADOPT_TYPE:
                   f64         x, y, z;
                   uint32      score;
@@ -478,12 +480,14 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                      }
                   }
 
+                  // service with the smallest CPU load
                   if (pktca->bestCPUID == 0 || pktca->bestCPUScore > score) {
                      pktca->bestCPUID = args->ifaceaddr;
                      pktca->bestCPUPort = servicePort;
                      pktca->bestCPUScore = score;
                   }
 
+                  // it goes home or to the next in chain
                   if (args->naddr == 0) {
                      fromAddr = pktca->askingServiceID;
                      fromPort = pktca->askingServicePort;
