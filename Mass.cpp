@@ -114,6 +114,7 @@ DWORD WINAPI mass_client_entry(void *arg) {
 // packet stream packet
 typedef struct _MASS_PSP {
    struct _MASS_PSP     *next;
+   struct _MASS_PSP     *prev;
    void                 *data;
    uint16               sz;
 } MASS_PSP;

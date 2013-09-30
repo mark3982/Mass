@@ -12,6 +12,7 @@ void mass_ll_add(void **chain, void *toadd) {
    *chain = toadd;
 }
 
+// potential major performance problem
 void mass_ll_rem(void **chain, void *torem) {
    if (*chain == torem) {
       *chain = ((void**)*chain)[0];

@@ -101,7 +101,7 @@ void mass_ghost_gb(MASS_RDP *sock, MASS_ENTITYCHAIN *entities, uint32 masterID, 
          //               invisible atomic forces in deep space that stretch space and time
 
          /* fill required fields and send packet */
-         if (cec->entity.flags & MASS_ENTITY_LOCKED == 0) {
+         if ((cec->entity.flags & MASS_ENTITY_LOCKED) == 0) {
             pktca.entityID = cec->entity.entityID;
             pktca.x = cec->entity.lx;
             pktca.y = cec->entity.ly;
@@ -199,8 +199,8 @@ DWORD WINAPI mass_ghost_child(void *arg) {
    // send the reply
    mass_rdp_sendto(&sock, &sr, sizeof(MASS_SERVICEREADY), args->suraddr, args->surport);
 
-            uint32      la = 0;
-         uint32      lp = 0;
+   uint32      la = 0;
+   uint32      lp = 0;
 
    // main loop
    while (1) {
@@ -220,11 +220,11 @@ DWORD WINAPI mass_ghost_child(void *arg) {
             }
 
             /* set random energy levels for testing */
-            //for (MASS_ENTITYCHAIN *ec = cd->entities; ec != 0; ec = (MASS_ENTITYCHAIN*)mass_ll_next(ec)) {
-            //   ec->entity.lex = RANDFP() * 100.0;
-            //   ec->entity.ley = RANDFP() * 100.0;
-            //   ec->entity.lez = RANDFP() * 100.0;
-            //}
+            for (MASS_ENTITYCHAIN *ec = cd->entities; ec != 0; ec = (MASS_ENTITYCHAIN*)mass_ll_next(ec)) {
+               ec->entity.lex = RANDFP() * 100.0;
+               ec->entity.ley = RANDFP() * 100.0;
+               ec->entity.lez = RANDFP() * 100.0;
+            }
 
             time(&ct);
 

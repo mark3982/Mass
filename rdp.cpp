@@ -52,8 +52,8 @@ int mass_rdp_resend(MASS_RDP *rdp) {
       ++x;
    }
 
-   x = sizeof(addr);
-   getsockname(rdp->sock, (sockaddr*)&addr, &x);
+   //x = sizeof(addr);
+   //getsockname(rdp->sock, (sockaddr*)&addr, &x);
 
    //printf("[rdp:%x] id:%x port:%x no-ack:%u\n", GetCurrentThreadId(), addr.sin_addr.S_un.S_addr, addr.sin_port, x);
    

@@ -47,6 +47,7 @@ typedef struct _MASS_ENTITY {
 // packaged for a linked list
 typedef struct _MASS_ENTITYCHAIN {
    struct _MASS_ENTITYCHAIN   *next;
+   struct _MASS_ENTITYCHAIN   *prev;
    MASS_ENTITY                entity;
 } MASS_ENTITYCHAIN;
 

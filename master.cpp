@@ -11,6 +11,7 @@
 
 typedef struct _MASS_MASTERSERVICE {
    struct _MASS_MASTERSERVICE             *next;
+   struct _MASS_MASTERSERVICE             *prev;
    uint32                                  addr;
    uint16                                  port;
    uint32                                  lping;
@@ -18,6 +19,7 @@ typedef struct _MASS_MASTERSERVICE {
 
 typedef struct _MASS_CHILDSERVICE {
    struct _MASS_CHILDSERVICE              *next;
+   struct _MASS_CHILDSERVICE              *prev;
    uint32                                 addr;
    uint16                                 port;
 
@@ -27,22 +29,10 @@ typedef struct _MASS_CHILDSERVICE {
 
 typedef struct _MASS_WAITINGENTITY {
    struct _MASS_WAITINGENTITY             *next;
+   struct _MASS_WAITINGENTITY             *prev;
    uint8                                  sent;
    MASS_ENTITY                            entity;
 } MASS_WAITINGENTITY;
-
-void mass_master_childStart(MASS_RDP *sock, MASS_MASTERSERVICE *mserv) {
-   MASS_NEWSERVICE         pkt;
-
-   pkt.hdr.type = MASS_NEWSERVICE_TYPE;
-   pkt.hdr.length = sizeof(MASS_NEWSERVICE);
-   // wait until it has actually started to link it into the chain of child services
-   pkt.naddr = 0;
-   pkt.nport = 0;
-
-   mass_rdp_sendto(sock, &pkt, sizeof(MASS_NEWSERVICE), mserv->addr, mserv->port);
-   return;
-}
 
 DWORD WINAPI mass_master_entry(LPVOID arg) {
    MASS_MASTER_ARGS        *args;
@@ -247,7 +237,7 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
                   mass_ll_add((void**)&services, msptr);
                   printf("[master] new game service %x\n", msptr->addr);
                   // also, start up ONE child service
-                  mass_master_childStart(&sock, services);
+                  //mass_master_childStart(&sock, services);
                }
                break;
          }
