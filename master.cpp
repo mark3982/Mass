@@ -5,7 +5,7 @@
 #include "core.h"
 #include "packet.h"
 #include "linklist.h"
-#include "rdp.h"
+#include "mp.h"
 
 #define MASS_MASTER_MAXSERVICES           128
 
@@ -42,7 +42,7 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
    MASS_CHILDSERVICE       *cservices;
    MASS_WAITINGENTITY      *waitingEntities;
    time_t                  ct;
-   MASS_RDP                sock;
+   MASS_MP_SOCK            sock;
    uint32                  fromAddr;
    uint16                  fromPort;
 
@@ -50,7 +50,7 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
 
    args = (MASS_MASTER_ARGS*)arg;
 
-   mass_rdp_create(&sock, args->ifaceaddr, &args->servicePort, 9, 100);
+   mass_net_create(&sock, args->ifaceaddr);
 
    buf = malloc(0xffff);
 
@@ -78,9 +78,9 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
    while (1) {
       Sleep(10);
 
-      mass_rdp_resend(&sock);
+      mass_net_tick(&sock);
 
-      while (mass_rdp_recvfrom(&sock, buf, 0xffff, &fromAddr, &fromPort)> 0) {
+      while (mass_net_recvfrom(&sock, buf, 0xffff, &fromAddr)> 0) {
          pkt = (MASS_PACKET*)buf;
          //printf("[master] pkt->type:%u\n", pkt->type);
          switch (pkt->type) {
@@ -88,7 +88,7 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
                printf("unknown:\n");
                break;
             case MASS_ENTITYADOPTREDIRECT_TYPE:
-               mass_rdp_sendto(&sock, pkt, pkt->length, cservices->addr, cservices->port);
+               mass_net_sendto(&sock, pkt, pkt->length, cservices->addr);
                break;
             case MASS_SMCHECK_TYPE:
                // send to child service chain (this just does the resolution of the
@@ -97,7 +97,7 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
                // turns out bad I might just do that as it could be less overhead..
                // im worried with the volume of traffic that might have to be funneled
                // here and thus make the scale factor lower of this system
-               mass_rdp_sendto(&sock, pkt, pkt->length, cservices->addr, cservices->port);
+               mass_net_sendto(&sock, pkt, pkt->length, cservices->addr);
                break; 
             case MASS_ACCEPTENTITY_TYPE:
             {
@@ -159,12 +159,12 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
                      */
                      if (pkteca->bestServiceID != 0) {
                         pktea.dom = pkteca->bestServiceDom;
-                        mass_rdp_sendto(&sock, &pktea, sizeof(pktea), pkteca->bestServiceID, pkteca->bestServicePort);
-                        printf("[master] sent adopt entity to existing domain [%x:%x:%x]\n", pkteca->bestServiceID, pkteca->bestServicePort, pkteca->bestServiceDom);
+                        mass_net_sendto(&sock, &pktea, sizeof(pktea), pkteca->bestServiceID);
+                        printf("[master] sent adopt entity to existing domain [%x:%x]\n", pkteca->bestServiceID, pkteca->bestServiceDom);
                      } else {
                         pktea.dom = 0;
-                        mass_rdp_sendto(&sock, &pktea, sizeof(pktea), pkteca->bestCPUID, pkteca->bestCPUPort);
-                        printf("[master] sent adopt entity to new domain [%x:%x] with score %x\n", pkteca->bestCPUID, pkteca->bestCPUPort, pkteca->bestCPUScore);
+                        mass_net_sendto(&sock, &pktea, sizeof(pktea), pkteca->bestCPUID);
+                        printf("[master] sent adopt entity to new domain [%x] with score %x\n", pkteca->bestCPUID, pkteca->bestCPUScore);
                      }
                      break;
                   }
@@ -202,7 +202,7 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
                   pktcs.naddr = 0;
                   pktcs.nport = 0;
                }
-               mass_rdp_sendto(&sock, &pktcs, sizeof(pktcs), fromAddr, fromPort);
+               mass_net_sendto(&sock, &pktcs, sizeof(pktcs), fromAddr);
 
                csrv = (MASS_CHILDSERVICE*)malloc(sizeof(MASS_CHILDSERVICE));
                csrv->addr = fromAddr;
@@ -289,7 +289,7 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
                pkteca.y = ptr->entity.ly;
                pkteca.z = ptr->entity.lz;
 
-               mass_rdp_sendto(&sock, &pkteca, sizeof(pkteca), cservices->addr, cservices->port);
+               mass_net_sendto(&sock, &pkteca, sizeof(pkteca), cservices->addr);
                printf("[master] send entity adopt for entity %x\n", ptr->entity.entityID);
 
                ptr->sent = 1;

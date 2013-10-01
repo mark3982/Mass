@@ -1,4 +1,4 @@
-#include "mdp.h"
+#include "mp.h"
 #include "linklist.h"
 
 
@@ -41,6 +41,7 @@ int mass_net_recvfrom(MASS_MP_SOCK *mps, void *buf, uint16 sz, uint32 *_addr) {
    }
 
    memcpy(buf, pkt->data, pkt->sz > sz ? sz : pkt->sz);
+   *_addr = pkt->from;
 
    LeaveCriticalSection(&mutex);
    return pkt->sz > sz ? sz : pkt->sz;

@@ -1,4 +1,5 @@
 // reliable datagram protocol
+#define _MASS_RDP_H
 #ifndef _MASS_RDP_H
 #define _MASS_RDP_H
 #include "core.h"

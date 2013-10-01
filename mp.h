@@ -19,9 +19,10 @@ typedef struct _MASS_MP_SOCK {
 } MASS_MP_SOCK;
 
 
-int mass_net_sendto(MASS_MP_SOCK *mps, void *buf, uint16 sz, uint32 addr, uint16 port);
-int mass_net_recvfrom(MASS_MP_SOCK *mps, void *buf, uint16 sz, uint32 *_addr, uint16 *_port);
-int mass_net_create(MASS_MP_SOCK *mps, uint32 laddr, uint16 *lport, uint32 blm, uint32 rwt);
-int mass_net_resend(MASS_MP_SOCK *mps);
+void mass_net_init();
+int mass_net_sendto(MASS_MP_SOCK *mps, void *buf, uint16 sz, uint32 addr);
+int mass_net_recvfrom(MASS_MP_SOCK *mps, void *buf, uint16 sz, uint32 *_addr);
+int mass_net_create(MASS_MP_SOCK *mps, uint32 laddr);
+int mass_net_tick(MASS_MP_SOCK *mps);
 
 #endif

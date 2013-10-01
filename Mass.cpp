@@ -12,6 +12,7 @@
 #include "packet.h"
 #include "ghost.h"
 #include "master.h"
+#include "mdp.h"
 
 #define SPACECHUNKSZ       256
 
@@ -209,6 +210,7 @@ int _tmain(int argc, _TCHAR* argv[])
    MASS_GHOSTCHILD_ARGS    childargs[2];
 
    WSAStartup(MAKEWORD(2, 2), &wsaData);
+   mass_net_init();
 
    /*
    // RDP TEST
