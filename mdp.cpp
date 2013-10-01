@@ -15,7 +15,7 @@ int mass_net_sendto(MASS_MP_SOCK *mps, void *buf, uint16 sz, uint32 addr) {
    EnterCriticalSection(&mutex);
 
    for (MASS_MP_SOCK *cs = sockchain; cs != 0; cs = (MASS_MP_SOCK*)mass_ll_next(cs)) {
-      if (addr == 0 || cs->addr == addr) {
+      if (addr == 0 || cs->addr == addr || cs->bcaddr == addr) {
          np = (MASS_MP_PKT*)malloc(sizeof(MASS_MP_PKT));
          np->from = mps->addr;
          np->data = buf;
@@ -47,11 +47,12 @@ int mass_net_recvfrom(MASS_MP_SOCK *mps, void *buf, uint16 sz, uint32 *_addr) {
    return pkt->sz > sz ? sz : pkt->sz;
 }
 
-int mass_net_create(MASS_MP_SOCK *mps, uint32 laddr) {
+int mass_net_create(MASS_MP_SOCK *mps, uint32 laddr, uint32 bcaddr) {
    mps->addr = laddr;
    mps->in = 0;
    mps->next = 0;
    mps->prev = 0;
+   mps->bcaddr = bcaddr;
 
    EnterCriticalSection(&mutex);
 
