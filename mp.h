@@ -9,6 +9,10 @@ typedef struct _MASS_MP_PKT {
    uint32                      from;
    void                       *data;
    uint32                      sz;
+   // debugging stuff
+   char                       *file;
+   char                       *func;
+   int                        line;
 } MASS_MP_PKT;
 
 typedef struct _MASS_MP_SOCK {

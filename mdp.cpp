@@ -9,7 +9,9 @@ void mass_net_init() {
    InitializeCriticalSection(&mutex);
 }
 
-int mass_net_sendto(MASS_MP_SOCK *mps, void *buf, uint16 sz, uint32 addr) {
+#define mass_net_sendto(mps, buf, sz, addr) _mass_net_sendto(mps, buf, sz, addr, __FILE__, __FUNCTIONW__, __LINE__)
+
+int _mass_net_sendto(MASS_MP_SOCK *mps, void *buf, uint16 sz, uint32 addr, char *file, char *func, int line) {
    MASS_MP_PKT          *np;
 
    EnterCriticalSection(&mutex);
@@ -23,8 +25,12 @@ int mass_net_sendto(MASS_MP_SOCK *mps, void *buf, uint16 sz, uint32 addr) {
       if (addr == 0 || cs->addr == addr || cs->bcaddr == addr) {
          np = (MASS_MP_PKT*)malloc(sizeof(MASS_MP_PKT));
          np->from = mps->addr;
-         np->data = buf;
+         np->data = malloc(sz);
+         memcpy(np->data, buf, sz);
          np->sz = sz;
+         np->file = file;
+         np->func = func;
+         np->line = line;
          mass_ll_addLast((void**)&cs->in, np);
       }
    }
@@ -47,6 +53,9 @@ int mass_net_recvfrom(MASS_MP_SOCK *mps, void *buf, uint16 sz, uint32 *_addr) {
 
    memcpy(buf, pkt->data, pkt->sz > sz ? sz : pkt->sz);
    *_addr = pkt->from;
+
+   free(pkt->data);
+   free(pkt);
 
    LeaveCriticalSection(&mutex);
    return pkt->sz > sz ? sz : pkt->sz;
