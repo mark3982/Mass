@@ -15,6 +15,11 @@ int mass_net_sendto(MASS_MP_SOCK *mps, void *buf, uint16 sz, uint32 addr) {
    EnterCriticalSection(&mutex);
 
    for (MASS_MP_SOCK *cs = sockchain; cs != 0; cs = (MASS_MP_SOCK*)mass_ll_next(cs)) {
+      // do not send to ourselves
+      if (mps->addr == addr)
+         continue;
+      // send to everyone if addr is zero, but if not only if addr matches
+      // the local address or/and the broadcast address
       if (addr == 0 || cs->addr == addr || cs->bcaddr == addr) {
          np = (MASS_MP_PKT*)malloc(sizeof(MASS_MP_PKT));
          np->from = mps->addr;
