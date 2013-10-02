@@ -23,9 +23,10 @@ typedef struct _MASS_MP_SOCK {
    MASS_MP_PKT                *in;
 } MASS_MP_SOCK;
 
+#define mass_net_sendto(mps, buf, sz, addr) _mass_net_sendto(mps, buf, sz, addr, __FILE__, __FUNCTION__, __LINE__)
 
 void mass_net_init();
-int mass_net_sendto(MASS_MP_SOCK *mps, void *buf, uint16 sz, uint32 addr);
+int _mass_net_sendto(MASS_MP_SOCK *mps, void *buf, uint16 sz, uint32 addr, char *file, char *func, int line);
 int mass_net_recvfrom(MASS_MP_SOCK *mps, void *buf, uint16 sz, uint32 *_addr);
 int mass_net_create(MASS_MP_SOCK *mps, uint32 laddr, uint32 bcaddr);
 int mass_net_tick(MASS_MP_SOCK *mps);

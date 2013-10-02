@@ -398,8 +398,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                   printf("ec:%x\n", ec);
                   memcpy(&ec->entity,  &pktea->entity, sizeof(MASS_ENTITY));
                   mass_ll_add((void**)&cd->entities, ec);
-				  //printf("[child] adopted entity %x into dom %u from dom %u\n", ec->entity.entityID, cd->dom, pktea->fromDom);
-				  printf("[child] adopted entity into dom %u from dom %u\n", cd->dom, pktea->fromDom);
+				      printf("[child] adopted entity into dom %u from dom %u\n", cd->dom, pktea->fromDom);
                   /* send accept entity so remote domain can remove entity from it's self */
                   {
                      MASS_ACCEPTENTITY       pktae;

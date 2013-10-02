@@ -9,8 +9,6 @@ void mass_net_init() {
    InitializeCriticalSection(&mutex);
 }
 
-#define mass_net_sendto(mps, buf, sz, addr) _mass_net_sendto(mps, buf, sz, addr, __FILE__, __FUNCTIONW__, __LINE__)
-
 int _mass_net_sendto(MASS_MP_SOCK *mps, void *buf, uint16 sz, uint32 addr, char *file, char *func, int line) {
    MASS_MP_PKT          *np;
 

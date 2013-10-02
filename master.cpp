@@ -81,7 +81,7 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
          //printf("[master] pkt->type:%u\n", pkt->type);
          switch (pkt->type) {
             default:
-               printf("unknown:\n");
+               printf("unknown:%x\n", pkt->type);
                break;
             case MASS_ENTITYADOPTREDIRECT_TYPE:
                mass_net_sendto(&sock, pkt, pkt->length, cservices->addr);
