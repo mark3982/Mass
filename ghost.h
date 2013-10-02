@@ -4,17 +4,14 @@
 
 typedef struct _MASS_GHOST_ARGS {
    uint32            masterAddr;
-   uint16            masterPort;
-   uint16            servicePort;
    uint32            iface;
 } MASS_GHOST_ARGS;
 
 typedef struct _MASS_GHOSTCHILD_ARGS {
    uint32            naddr;               // next service address (or zero for end of chain)
-   uint16            nport;               // next port (unused if naddr is zero)
    uint32            suraddr;             // startup reply address
-   uint16            surport;             // startup reply port
-   uint32            ifaceaddr;           // interface address we listen on
+   uint32            laddr;               // local address
+   uint32            bcaddr;              // broadcast address
 } MASS_GHOSTCHILD_ARGS;
 
 typedef struct _MASS_DOMAIN {

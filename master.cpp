@@ -13,7 +13,6 @@ typedef struct _MASS_MASTERSERVICE {
    struct _MASS_MASTERSERVICE             *next;
    struct _MASS_MASTERSERVICE             *prev;
    uint32                                  addr;
-   uint16                                  port;
    uint32                                  lping;
 } MASS_MASTERSERVICE;
 
@@ -21,10 +20,8 @@ typedef struct _MASS_CHILDSERVICE {
    struct _MASS_CHILDSERVICE              *next;
    struct _MASS_CHILDSERVICE              *prev;
    uint32                                 addr;
-   uint16                                 port;
 
    uint32                                 naddr;
-   uint16                                 nport;
 } MASS_CHILDSERVICE;
 
 typedef struct _MASS_WAITINGENTITY {
@@ -44,13 +41,12 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
    time_t                  ct;
    MASS_MP_SOCK            sock;
    uint32                  fromAddr;
-   uint16                  fromPort;
 
    printf("master up\n");
 
    args = (MASS_MASTER_ARGS*)arg;
 
-   mass_net_create(&sock, args->ifaceaddr);
+   mass_net_create(&sock, args->laddr, args->bcaddr);
 
    buf = malloc(0xffff);
 
@@ -181,7 +177,7 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
 
                // check if service already exists (caused by a crash restart)
                for (csrv = cservices; csrv != 0; csrv = (MASS_CHILDSERVICE*)mass_ll_next(csrv)) {
-                  if (csrv->addr == fromAddr && csrv->port == fromPort) {
+                  if (csrv->addr == fromAddr) {
                      printf("[master] (ignoring) possible child crash restart %x\n", csrv->addr);
                      break;
                   }
@@ -195,18 +191,15 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
                pktcs.hdr.type = MASS_CHGSERVICENXT_TYPE;
                if (cservices != 0) {
                   pktcs.naddr = cservices->addr;
-                  pktcs.nport = cservices->port;
                } else {
                   // i do belieive the service is already configured with zeros, but i suppose
                   // it will not hurt to do this anyway
                   pktcs.naddr = 0;
-                  pktcs.nport = 0;
                }
                mass_net_sendto(&sock, &pktcs, sizeof(pktcs), fromAddr);
 
                csrv = (MASS_CHILDSERVICE*)malloc(sizeof(MASS_CHILDSERVICE));
                csrv->addr = fromAddr;
-               csrv->port = fromPort;
                
                mass_ll_add((void**)&cservices, csrv);               
 
@@ -219,7 +212,7 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
 
                // do we already have an entry?
                for (msptr = services; msptr != 0; msptr = (MASS_MASTERSERVICE*)mass_ll_next(msptr)) {
-                  if (msptr->addr == fromAddr && msptr->port == fromPort) {
+                  if (msptr->addr == fromAddr) {
                      // yes, then update last ping time
                      msptr->lping = ct;
                      //printf("[master] ping from game service %x\n", msptr->addr);
@@ -232,7 +225,6 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
                   // no, then add it
                   msptr = (MASS_MASTERSERVICE*)malloc(sizeof(MASS_MASTERSERVICE));
                   msptr->addr = fromAddr;
-                  msptr->port = fromPort;
                   msptr->lping = ct;
                   mass_ll_add((void**)&services, msptr);
                   printf("[master] new game service %x\n", msptr->addr);
@@ -276,8 +268,7 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
 
                pkteca.hdr.length = sizeof(MASS_ENTITYCHECKADOPT);
                pkteca.hdr.type = MASS_ENTITYCHECKADOPT_TYPE;
-               pkteca.askingServiceID = args->ifaceaddr;
-               pkteca.askingServicePort = args->servicePort;
+               pkteca.askingServiceID = args->laddr;
                pkteca.bestDistance = MASS_INTERACT_RANGE * 2;
                pkteca.bestServiceID = 0;
                pkteca.bestServicePort = 0;

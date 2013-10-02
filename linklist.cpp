@@ -16,7 +16,7 @@ void mass_ll_addLast(void **chain, void *toadd) {
    if (l == 0) {
       *chain = toadd;
    } else {
-      ((void**)p)[0] = toadd;
+      ((void**)l)[0] = toadd;
    }
 
    ((void**)toadd)[0] = 0;

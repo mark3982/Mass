@@ -6,12 +6,12 @@
 #include "ghost.h"
 #include "core.h"
 #include "packet.h"
-#include "rdp.h"
+#include "mp.h"
 
 /* global used to quickly find new unused id */
 uint8             mapdom[0xffff / 8];
 
-void mass_ghost_sm(MASS_RDP *sock, MASS_ENTITYCHAIN *entities, uint16 askingDom, uint32 masterID, uint16 masterPort, uint32 localID, uint16 localPort) {
+void mass_ghost_sm(MASS_MP_SOCK *sock, MASS_ENTITYCHAIN *entities, uint16 askingDom, uint32 masterID, uint32 localID) {
    // calculate averagedcenter point of entities
    f64            ax, ay, az;
    MASS_ENTITY    *ce;
@@ -45,17 +45,16 @@ void mass_ghost_sm(MASS_RDP *sock, MASS_ENTITYCHAIN *entities, uint16 askingDom,
    smc.hdr.length = sizeof(MASS_SMCHECK);
    smc.hdr.type = MASS_SMCHECK_TYPE;
    smc.askingID = localID;
-   smc.askingPort = localPort;
    smc.askingDom = askingDom;
    smc.irange = MASS_INTERACT_RANGE;
    smc.x = ax;
    smc.y = ay;
    smc.z = az;
 
-   mass_rdp_sendto(sock, &smc, sizeof(MASS_SMCHECK), masterID, masterPort);
+   mass_net_sendto(sock, &smc, sizeof(MASS_SMCHECK), masterID);
 }
 
-void mass_ghost_gb(MASS_RDP *sock, MASS_ENTITYCHAIN *entities, uint32 masterID, uint16 masterPort, uint32 ourID, uint16 ourPort, uint16 ourDom) {
+void mass_ghost_gb(MASS_MP_SOCK *sock, MASS_ENTITYCHAIN *entities, uint32 masterID, uint32 ourID, uint16 ourDom) {
    // calculate averagedcenter point of entities
    f64            ax, ay, az;
    MASS_ENTITY    *ce;
@@ -86,7 +85,6 @@ void mass_ghost_gb(MASS_RDP *sock, MASS_ENTITYCHAIN *entities, uint32 masterID, 
    pktca.bestServiceID = 0;
    pktca.askingServiceDom = ourDom;
    pktca.askingServiceID = ourID;
-   pktca.askingServicePort = ourPort;
 
    f64            d;
    /* check all entities outside average center */
@@ -107,7 +105,8 @@ void mass_ghost_gb(MASS_RDP *sock, MASS_ENTITYCHAIN *entities, uint32 masterID, 
             pktca.y = cec->entity.ly;
             pktca.z = cec->entity.lz;
             cec->entity.flags |= MASS_ENTITY_LOCKED;
-            mass_rdp_sendto(sock, &pktca, sizeof(MASS_ENTITYADOPT), masterID, masterPort);
+            // TODO: change to send straight to the ghost group instead of master
+            mass_net_sendto(sock, &pktca, sizeof(MASS_ENTITYADOPT), masterID);
          }
       }
    }
@@ -177,7 +176,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
    uint16                  fromPort;
    int                     x_firstadopt; // bad hackery
    MASS_DOMAIN             *domains;
-   MASS_RDP                sock;
+   MASS_MP_SOCK            sock;
    MASS_DOMAIN             *cd;
 
    args = (MASS_GHOSTCHILD_ARGS*)arg;
@@ -188,16 +187,16 @@ DWORD WINAPI mass_ghost_child(void *arg) {
 
    domains = 0;
 
-   mass_rdp_create(&sock, args->ifaceaddr, &servicePort, 10, 100);   
+   mass_net_create(&sock, args->laddr, args->bcaddr);   
 
    buf = malloc(0xffff);
 
    // reply that we have completed startup so we can be considered active and part of the chain
    sr.hdr.length = sizeof(MASS_SERVICEREADY);
    sr.hdr.type = MASS_SERVICEREADY_TYPE;
-   printf("[child] child service started %x:%x <%x:%x>\n", args->ifaceaddr, servicePort, args->suraddr, args->surport);
+   printf("[child] child service started %x:%x <%x>\n", args->laddr, args->bcaddr, args->suraddr);
    // send the reply
-   mass_rdp_sendto(&sock, &sr, sizeof(MASS_SERVICEREADY), args->suraddr, args->surport);
+   mass_net_sendto(&sock, &sr, sizeof(MASS_SERVICEREADY), args->suraddr);
 
    uint32      la = 0;
    uint32      lp = 0;
@@ -231,24 +230,24 @@ DWORD WINAPI mass_ghost_child(void *arg) {
             /* check for entities outside domain interaction range limit */
             if (ct - cd->lgb > 5000) {
                cd->lgb = ct;
-               printf("[child:%x:%x] doing group break..\n", args->ifaceaddr, servicePort);
-               mass_ghost_gb(&sock, cd->entities, args->suraddr, args->surport, args->ifaceaddr, servicePort, cd->dom);
+               printf("[child:%x:%x] doing group break..\n", args->laddr, servicePort);
+               mass_ghost_gb(&sock, cd->entities, args->suraddr, args->laddr, cd->dom);
             }
             
             /* check for server merge */
             if (ct - cd->lsm > 5000) {
                cd->lsm = ct;
-               printf("[child:%x:%x] doing server merge check\n", args->ifaceaddr, servicePort);
-               mass_ghost_sm(&sock, cd->entities, cd->dom, args->suraddr, args->surport, args->ifaceaddr, servicePort);
+               printf("[child:%x:%x] doing server merge check\n", args->laddr, servicePort);
+               mass_ghost_sm(&sock, cd->entities, cd->dom, args->suraddr, args->laddr);
             }
          } /* domain loop */
       
          /* resend packets with not ack received */
-         mass_rdp_resend(&sock);
+         mass_net_tick(&sock);
 
          //args->naddr, args->nport
 
-         while (mass_rdp_recvfrom(&sock, buf, 0xffff, &fromAddr, &fromPort)) {
+         while (mass_net_recvfrom(&sock, buf, 0xffff, &fromAddr)) {
             
             if (args->naddr != la) {
                printf("CHANGED\n");
@@ -270,11 +269,11 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                   f64                  x, y, z;               
 
                   pktsmc = (MASS_SMCHECK*)pkt;
-                  printf("[child:%x:%x] SMCHECK\n", args->ifaceaddr, servicePort);
+                  printf("[child:%x:%x] SMCHECK\n", args->laddr, servicePort);
                   /* determine if a child can adopt the entities in a server merge */
                   for (cd = domains; cd != 0; cd = (MASS_DOMAIN*)mass_ll_next(cd)) {
                      /* do not ask ourselves */
-                     if (pktsmc->askingID == args->ifaceaddr && pktsmc->askingPort == servicePort && pktsmc->askingDom == cd->dom) {
+                     if (pktsmc->askingID == args->laddr && pktsmc->askingDom == cd->dom) {
                         x = MASS_INTERACT_RANGE + 1;              /* just to make sure we fail the next condition */
                      } else {
                         mass_ghost_cwc(cd->entities, &x, &y, &z);
@@ -288,12 +287,11 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                      if (x < MASS_INTERACT_RANGE && cd->ecnt < MASS_MAXENTITY) {
                         pktsmr.hdr.length = sizeof(MASS_SMREPLY);
                         pktsmr.hdr.type = MASS_SMREPLY_TYPE;
-                        pktsmr.replyID = args->ifaceaddr;
-                        pktsmr.replyPort = servicePort;
+                        pktsmr.replyID = args->laddr;
                         pktsmr.replyDom = cd->dom;
                         pktsmr.checkingDom = pktsmc->askingDom;
                         pktsmr.maxCount = MASS_MAXENTITY - cd->ecnt;
-                        mass_rdp_sendto(&sock, &pktsmr, sizeof(MASS_SMREPLY), pktsmc->askingID, pktsmc->askingPort);
+                        mass_net_sendto(&sock, &pktsmr, sizeof(MASS_SMREPLY), pktsmc->askingID);
                         printf("[child] sent GOOD reply for server merge\n");
                         break;
                      }
@@ -302,7 +300,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                   /* if no match was found send to next child in chain */
                   if (cd == 0) {
                      if (args->naddr != 0)
-                           mass_rdp_sendto(&sock, pktsmc, sizeof(MASS_SMCHECK), args->naddr, args->nport);
+                           mass_net_sendto(&sock, pktsmc, sizeof(MASS_SMCHECK), args->naddr);
                   }
                   break;
                }
@@ -335,7 +333,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                         memcpy(&pktae.entity, &ec->entity, sizeof(MASS_ENTITY));
                         ec->entity.flags |= MASS_ENTITY_LOCKED;
                      }
-                     mass_rdp_sendto(&sock, &pktae, sizeof(MASS_ENTITYADOPT), fromAddr, fromPort);
+                     mass_net_sendto(&sock, &pktae, sizeof(MASS_ENTITYADOPT), fromAddr);
                   }
                   break;
                case MASS_CHGSERVICENXT_TYPE:
@@ -345,8 +343,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                   // to faciliate the restart
                   pktcsn = (MASS_CHGSERVICENXT*)pkt;
                   args->naddr = pktcsn->naddr;
-                  args->nport = pktcsn->nport;
-                  printf("[child] got CHGSERVICENXT with %x--%u\n", args->naddr, args->nport);
+                  printf("[child] got CHGSERVICENXT with --%x--\n", args->naddr);
                   break;
                case MASS_GHOSTSHUTDOWN_TYPE:
                   // just exit; the issuer should have checked that the service has no state to save
@@ -389,7 +386,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                         pktre.hdr.type = MASS_REJECTENTITY_TYPE;
                         pktre.hdr.length = sizeof(MASS_REJECTENTITY);
                         pktre.dom = pktea->fromDom;                  
-                        mass_rdp_sendto(&sock, &pktre, sizeof(MASS_REJECTENTITY), fromAddr, fromPort);
+                        mass_net_sendto(&sock, &pktre, sizeof(MASS_REJECTENTITY), fromAddr);
                         break;
                      }
                   }
@@ -410,7 +407,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                      pktae.hdr.type = MASS_ACCEPTENTITY_TYPE;
                      pktae.hdr.length = sizeof(MASS_ACCEPTENTITY);
                      pktae.dom = pktea->fromDom;
-                     mass_rdp_sendto(&sock, &pktae, sizeof(MASS_ACCEPTENTITY), fromAddr, fromPort);
+                     mass_net_sendto(&sock, &pktae, sizeof(MASS_ACCEPTENTITY), fromAddr);
                      cd->ecnt++;
                   }
                   break;
@@ -473,7 +470,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                      if (x < MASS_INTERACT_RANGE) {
                         /* B.1. see if we can beat existing */
                         if (pktca->bestServiceID == 0 || (pktca->bestDistance > x)) {
-                           pktca->bestServiceID = args->ifaceaddr;
+                           pktca->bestServiceID = args->laddr;
                            pktca->askingServicePort = servicePort;
                            pktca->bestServiceDom = cd->dom;
                         }
@@ -482,7 +479,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
 
                   // service with the smallest CPU load
                   if (pktca->bestCPUID == 0 || pktca->bestCPUScore > score) {
-                     pktca->bestCPUID = args->ifaceaddr;
+                     pktca->bestCPUID = args->laddr;
                      pktca->bestCPUPort = servicePort;
                      pktca->bestCPUScore = score;
                   }
@@ -490,13 +487,11 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                   // it goes home or to the next in chain
                   if (args->naddr == 0) {
                      fromAddr = pktca->askingServiceID;
-                     fromPort = pktca->askingServicePort;
                   } else {
                      fromAddr = args->naddr;
-                     fromPort = args->nport;
                   }
 
-                  mass_rdp_sendto(&sock, pktca, sizeof(MASS_ENTITYCHECKADOPT), fromAddr, fromPort);
+                  mass_net_sendto(&sock, pktca, sizeof(MASS_ENTITYCHECKADOPT), fromAddr);
                   break;
             }
          } // packet loop

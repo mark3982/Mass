@@ -1,9 +1,9 @@
 #include "auth.h"
-#include "rdp.h"
+#include "mp.h"
 
 void mass_auth_entry(void *ptr) {
    MASS_AUTH_ARGS          *args;
-   MASS_RDP                rdp;
+   MASS_MP_SOCK            sock;
 
    args = (MASS_AUTH_ARGS*)ptr;
 

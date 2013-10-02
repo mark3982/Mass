@@ -12,7 +12,7 @@
 #include "packet.h"
 #include "ghost.h"
 #include "master.h"
-#include "mdp.h"
+#include "mp.h"
 
 #define SPACECHUNKSZ       256
 
@@ -246,24 +246,24 @@ int _tmain(int argc, _TCHAR* argv[])
 
    //CreateThread(NULL, 0, mass_auth_entry, 0, 0, NULL);
    //CreateThread(NULL, 0, mass_geo_entry, 0, 0, NULL);
+   masterargs.laddr = 0x2001;
+   masterargs.bcaddr = 0x100;
+   CreateThread(NULL, 0, mass_master_entry, &masterargs, 0, NULL);
 
-   childargs[0].ifaceaddr = inet_addr("127.0.0.1");
+   printf("[mass] waiting for master service to start\n");
+   Sleep(1000);
+
+   childargs[0].laddr = 0x1001;
+   childargs[0].bcaddr = 0x200;
    childargs[0].naddr = 0;
-   childargs[0].nport = 0;
-   childargs[0].suraddr = inet_addr("127.0.0.1");
-   childargs[0].surport = 61230;
+   childargs[0].suraddr = 0x2001;
    CreateThread(NULL, 0, mass_ghost_child, &childargs[0], 0, NULL);
 
-   childargs[1].ifaceaddr = inet_addr("127.0.0.1");
+   childargs[1].laddr = 0x1002;
+   childargs[1].bcaddr = 0x200;
    childargs[1].naddr = 0;
-   childargs[1].nport = 0;
-   childargs[1].suraddr = inet_addr("127.0.0.1");
-   childargs[1].surport = 61230;
+   childargs[1].suraddr = 0x2001;
    CreateThread(NULL, 0, mass_ghost_child, &childargs[1], 0, NULL);
-
-   masterargs.ifaceaddr = inet_addr("127.0.0.1");
-   masterargs.servicePort = 61230;
-   CreateThread(NULL, 0, mass_master_entry, &masterargs, 0, NULL);
 
    for(;;) {
       Sleep(1000);
