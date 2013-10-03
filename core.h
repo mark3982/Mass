@@ -15,6 +15,9 @@ typedef uint64 ENTITYID;
 #define MASS_INTERACT_RANGE            1000.0
 #define MASS_MASTER_GHOST_TMEOUT       30000
 #define MASS_MAXENTITY                 10
+#define MASS_GHOST_GROUP               0x200
+#define MASS_MASTER_ADDR               0x2001
+#define MASS_MASTER_BCADDR             0x100
 
 #define RANDFP() ((double)rand() / (double)RAND_MAX)
 
