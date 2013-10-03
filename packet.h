@@ -16,6 +16,7 @@
 #define MASS_SMREPLY_TYPE                       110
 #define MASS_ENTITYADOPTREDIRECT_TYPE           111      // actually MASS_ENTITYADOPT_TYPE, but this allows redirect through the master
 #define MASS_ENTITYCHECKADOPT2_TYPE             112
+#define MASS_ENTITYCHECKADOPT2R_TYPE            113
 
 #define MASS_ENTITYCHECKADOPT_FINAL             0x01     // set when packet is being sent to final service
 
@@ -66,15 +67,16 @@ typedef struct _MASS_ENTITYCHECKADOPT2 {
    uint32            rid;                       // request id
    ENTITYID          entityID;                  // entity id
    uint32            askingServiceID;           // asking service id
-   uint16            askingServicePort;         // asking service port
    uint16            askingServiceDom;          // asking service domain
    f64               x, y, z;                   // coordinates
 } MASS_ENTITYCHECKADOPT2;
 
 typedef struct _MASS_ENTITYCHECKADOPT2R {
    MASS_PACKET       hdr;
-   ENTITYID          entityID;
-   uint16            askingServiceDom;
+   uint32            rid;                       // request id
+   ENTITYID          entityID;                  // entity id
+   uint16            askingServiceDom;          // who was specified in askingServiceDom in original packet
+   uint32            domain;                    // domain for distance specified
    f64               distance;                  // distance (asking service will choose between them all)
    uint32            cpuLoad;                   // linear arbitrary value representing load
 } MASS_ENTITYCHECKADOPT2R;

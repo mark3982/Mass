@@ -449,7 +449,45 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                   fromAddr = pktear->replyID;
                   fromPort = pktear->replyPort;
                case MASS_ENTITYCHECKADOPT2_TYPE:
+               {
+                  MASS_ENTITYCHECKADOPT2        *pkteca2;
+                  uint32                        score;
+                  f64                           x, y, z;
+                  uint32                        bestDom;
+                  f64                           bestDis;
+                  MASS_ENTITYCHECKADOPT2R       pktr;
+
+                  pkteca2 = (MASS_ENTITYCHECKADOPT2*)pkt;
+
+                  bestDis = 0.0;
+
+                  for (cd = domains, score = 0; cd != 0; cd = (MASS_DOMAIN*)mass_ll_next(cd)) {
+                     if (cd->ecnt > MASS_MAXENTITY)
+                        continue;
+                     score += cd->ecnt;
+                     mass_ghost_cwc(cd->entities, &x, &y, &z);
+                     x = MASS_DISTANCE(pkteca2->x, pkteca2->y, pkteca2->z, x, y, z);
+                     // TODO: check if domain is already full (max entities)
+                     if (x < bestDis || bestDis == 0.0) {
+                        bestDom = cd->dom;
+                        bestDis = x;
+                     }
+                  }
+
+                  // TODO: does MASS_ENTITYCHECKADOPT2 really need a askingServiceID field??
+                  pktr.hdr.length = sizeof(MASS_ENTITYCHECKADOPT2R);
+                  pktr.hdr.type = MASS_ENTITYCHECKADOPT2R_TYPE;
+                  pktr.domain = bestDom;
+                  pktr.distance = bestDis;
+                  pktr.cpuLoad = score;
+                  pktr.askingServiceDom = pkteca2->askingServiceDom;
+                  pktr.entityID = pkteca2->entityID;
+                  pktr.rid = pkteca2->rid;
+
+                  // send reply back to node and dom specified in request packet
+                  mass_net_sendto(&sock, &pktr, sizeof(MASS_ENTITYCHECKADOPT2R), pkteca2->askingServiceID);
                   break;
+               }
                case MASS_ENTITYCHECKADOPT_TYPE:
                   f64         x, y, z;
                   uint32      score;
