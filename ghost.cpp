@@ -75,16 +75,14 @@ void mass_ghost_gb(MASS_MP_SOCK *sock, MASS_ENTITYCHAIN *entities, uint32 master
    ay = ay / ecnt;
    az = az / ecnt;
 
-   MASS_ENTITYCHECKADOPT           pktca;
+   MASS_ENTITYCHECKADOPT2           pktca;
 
    pktca.hdr.type = MASS_ENTITYADOPTREDIRECT_TYPE;
    pktca.hdr.length = sizeof(MASS_ENTITYADOPT);
 
-   pktca.askingServiceID = 0;
-   pktca.bestCPUID = 0;
-   pktca.bestServiceID = 0;
-   pktca.askingServiceDom = ourDom;
    pktca.askingServiceID = ourID;
+   pktca.askingServiceDom = ourDom;
+   pktca.rid = 0;
 
    f64            d;
    /* check all entities outside average center */
@@ -106,7 +104,7 @@ void mass_ghost_gb(MASS_MP_SOCK *sock, MASS_ENTITYCHAIN *entities, uint32 master
             pktca.z = cec->entity.lz;
             cec->entity.flags |= MASS_ENTITY_LOCKED;
             // TODO: change to send straight to the ghost group instead of master
-            mass_net_sendto(sock, &pktca, sizeof(MASS_ENTITYADOPT), masterID);
+            mass_net_sendto(sock, &pktca, sizeof(MASS_ENTITYADOPT), MASS_GHOST_GROUP);
          }
       }
    }
@@ -178,6 +176,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
    MASS_DOMAIN             *domains;
    MASS_MP_SOCK            sock;
    MASS_DOMAIN             *cd;
+   MASS_EACREQC            *eacreqc;
 
    args = (MASS_GHOSTCHILD_ARGS*)arg;
 
@@ -448,6 +447,89 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                   pktear = (MASS_ENTITYADOPTREDIRECT*)pkt;
                   fromAddr = pktear->replyID;
                   fromPort = pktear->replyPort;
+               case MASS_ENTITYCHECKADOPT2R_TYPE:
+               {
+                  MASS_ENTITYCHECKADOPT2R             *pkteca2r;
+                  MASS_EACREQC                        *c;
+                  MASS_ENTITYADOPT                    pktea;
+                  MASS_DOMAIN                         *dom;
+                  MASS_ENTITYCHAIN                    *e;
+                  // A. We sent out a MASS_ENTITYCHECKADOPT2 from the group break code path..
+
+                  // We are going to get zero or more replies and we must also know
+                  // when we have processed the last reply. Latency needs to be ultra
+                  // low so we need a method to count or account for each reply to determine
+                  // when we have them all. Once that is done or during the processing of
+                  // each reply we need to determine the best g-host to send the entity adopt
+                  // packet to.
+
+                  // how to handle say for instance a g-host for some reason does not send
+                  // it's packet right away and is newly started so it can not be accounted
+                  // for and then five minutes later sends it.. [prolly need to have what
+                  // sends the request create the structure to capture the replies so if
+                  // we get a random lone message it will just be discarded]
+
+                  //eacreqc
+                  pkteca2r = (MASS_ENTITYCHECKADOPT2R*)pkt;
+
+                  for (c = eacreqc; c != 0; c = (MASS_EACREQC*)mass_ll_next(c)) {
+                     if (c->rid == pkteca2r->rid)
+                        break;
+                  }
+
+                  if (!c) {
+                     c = (MASS_EACREQC*)malloc(sizeof(MASS_EACREQC));
+                     memset(c, 0, sizeof(MASS_EACREQC));
+                     c->rid = pkteca2r->rid;
+                     c->replyCnt = masterChildCount;
+                     c->startTime = clock();
+                     c->bestCPUScore = ~0;
+                     mass_ll_add((void**)eacreqc, c);
+                  }
+
+                  if (pkteca2r->cpuLoad < c->bestCPUScore) {
+                     c->bestCPUScore = pkteca2r->cpuLoad;
+                     c->bestCPUAddr = fromAddr;
+                  }
+
+                  if (pkteca2r->distance < c->bestAdoptDistance || c->bestAdoptDistance == 0.0) {
+                     c->bestAdoptDistance = pkteca2r->distance;
+                     c->bestAdoptDom = pkteca2r->domain;
+                     c->bestAdoptAddr = fromAddr;
+                  }
+
+                  c->replyCnt--;
+                  if (c->replyCnt <= 0) {
+                     // we now have all the replies
+                     mass_ll_rem((void**)&eacreqc, c);
+                     
+                     dom = mass_getdom(domains, pkteca2r->askingServiceDom);
+                     
+                     for (e = dom->entities; e != 0; e = (MASS_ENTITYCHAIN*)mass_ll_next(e)) {
+                        if (e->entity.entityID == pkteca2r->entityID)
+                           break;
+                     }
+
+                     if (e) {
+                        pktea.hdr.length = sizeof(MASS_ENTITYADOPT);
+                        pktea.hdr.type = MASS_ENTITYADOPT_TYPE;
+                        memcpy(&pktea.entity, &e->entity, sizeof(MASS_ENTITY));
+                        if (eacreqc->bestAdoptAddr != 0) {
+                           // have dom on host that *should* accept entity (but might not)
+                           pktea.fromDom = dom->dom;
+                           pktea.dom = eacreqc->bestAdoptDom;
+                           mass_net_sendto(&sock, &pktea, sizeof(MASS_ENTITYADOPT), eacreqc->bestAdoptAddr);
+                        } else {
+                           // need new dom on new host
+                           pktea.fromDom = dom->dom;
+                           pktea.dom = 0;             // dom not specified value
+                           mass_net_sendto(&sock, &pktea, sizeof(MASS_ENTITYADOPT), eacreqc->bestCPUAddr);
+                        }
+                     }
+                     //
+                  }
+                  break;
+               }
                case MASS_ENTITYCHECKADOPT2_TYPE:
                {
                   MASS_ENTITYCHECKADOPT2        *pkteca2;
