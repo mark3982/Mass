@@ -77,8 +77,30 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
       mass_ll_add((void**)&waitingEntities, we);
    }
 
+   printf("[master] waiting for g-hosts\n");
+   Sleep(1000);
+
    while (1) {
-      Sleep(10);
+      Sleep(1);
+
+      // send adoption into new domain packets to all alive g-hosts
+      for (MASS_WAITINGENTITY *e = waitingEntities; e != 0; e = (MASS_WAITINGENTITY*)mass_ll_next(e)) {
+         if (e->sent != 0)
+            continue;
+         e->sent = 1;
+
+         MASS_ENTITYADOPT           pktea;
+
+         pktea.hdr.length = sizeof(pktea);
+         pktea.hdr.type = MASS_ENTITYADOPT_TYPE;
+
+         pktea.fromDom = 0;
+         pktea.dom = 0;
+
+         memcpy(&pktea.entity, &e->entity, sizeof(MASS_ENTITY));
+         mass_net_sendto(&sock, &pktea, sizeof(pktea), MASS_GHOST_FIRST);
+         printf("[master] send adopt for %u\n", e->entity.entityID);
+      }
 
       mass_net_tick(&sock);
 
@@ -89,18 +111,6 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
             default:
                printf("unknown:%x\n", pkt->type);
                break;
-            case MASS_ENTITYADOPTREDIRECT_TYPE:
-               mass_net_sendto(&sock, pkt, pkt->length, cservices->addr);
-               break;
-            case MASS_SMCHECK_TYPE:
-               // send to child service chain (this just does the resolution of the
-               // child service chain root) other each child service would have to be
-               // kept up to date with who is root of the chain.... actually if this
-               // turns out bad I might just do that as it could be less overhead..
-               // im worried with the volume of traffic that might have to be funneled
-               // here and thus make the scale factor lower of this system
-               mass_net_sendto(&sock, pkt, pkt->length, cservices->addr);
-               break; 
             case MASS_ACCEPTENTITY_TYPE:
             {
                MASS_ACCEPTENTITY                *pktae;
@@ -133,49 +143,6 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
                }               
                break;
             }
-            case MASS_ENTITYCHECKADOPT_TYPE:
-               /*
-                  at this point the entity check adopt has returned and has went through all of the
-                  child services registered to us as master; either we found a suitable match based
-                  on the entity being with-in interaction range OR we have found the best child (
-                  lowest CPU load) to create a new domain on
-               */
-               MASS_ENTITYCHECKADOPT      *pkteca;
-               MASS_ENTITYADOPT           pktea;               
-               MASS_WAITINGENTITY         *ptr;
-
-               pkteca = (MASS_ENTITYCHECKADOPT*)pkt;
-   
-               for (ptr = waitingEntities; ptr != 0; ptr = (MASS_WAITINGENTITY*)mass_ll_next(ptr)) {
-                  if (pkteca->entityID == ptr->entity.entityID) {
-                     pktea.hdr.type = MASS_ENTITYADOPT_TYPE;
-                     pktea.hdr.length = sizeof(MASS_ENTITYADOPT);
-                     memcpy(&pktea.entity, &ptr->entity, sizeof(ptr->entity));
-
-					      /* this dom never exists because zero is treated as special */
-					      pktea.fromDom = 0;
-
-                     /*
-                        determine if existing domain will adopt or we need to create a new domain on
-                        the child service that has the lowest CPU load
-                     */
-                     if (pkteca->bestServiceID != 0) {
-                        pktea.dom = pkteca->bestServiceDom;
-                        mass_net_sendto(&sock, &pktea, sizeof(pktea), pkteca->bestServiceID);
-                        printf("[master] sent adopt entity to existing domain [%x:%x]\n", pkteca->bestServiceID, pkteca->bestServiceDom);
-                     } else {
-                        pktea.dom = 0;
-                        mass_net_sendto(&sock, &pktea, sizeof(pktea), pkteca->bestCPUID);
-                        printf("[master] sent adopt entity to new domain [%x] with score %x\n", pkteca->bestCPUID, pkteca->bestCPUScore);
-                     }
-                     break;
-                  }
-               }
-
-               if (ptr == 0) {
-                  printf("[master] check adopt for unknown entity by ID %x\n", pkteca->entityID);
-               }
-               break;
             case MASS_SERVICEREADY_TYPE:
                MASS_SERVICEREADY          *pktsr;
                MASS_CHILDSERVICE          *csrv;
@@ -191,19 +158,6 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
 
                pktsr = (MASS_SERVICEREADY*)pkt;
 
-               // send reply configuring the child service
-               MASS_CHGSERVICENXT            pktcs;
-               pktcs.hdr.length = sizeof(MASS_CHGSERVICENXT);
-               pktcs.hdr.type = MASS_CHGSERVICENXT_TYPE;
-               if (cservices != 0) {
-                  pktcs.naddr = cservices->addr;
-               } else {
-                  // i do belieive the service is already configured with zeros, but i suppose
-                  // it will not hurt to do this anyway
-                  pktcs.naddr = 0;
-               }
-               mass_net_sendto(&sock, &pktcs, sizeof(pktcs), fromAddr);
-
                csrv = (MASS_CHILDSERVICE*)malloc(sizeof(MASS_CHILDSERVICE));
                csrv->addr = fromAddr;
                
@@ -215,87 +169,8 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
                pktmcc.count++;
                mass_net_sendto(&sock, &pktmcc, sizeof(MASS_MASTERCHILDCOUNT), MASS_GHOST_GROUP);
                break;
-            // track game services (not actual child service!)
-            case MASS_MASTERPING_TYPE:
-               MASS_MASTERSERVICE         *msptr;
-               time(&ct);
-
-               // do we already have an entry?
-               for (msptr = services; msptr != 0; msptr = (MASS_MASTERSERVICE*)mass_ll_next(msptr)) {
-                  if (msptr->addr == fromAddr) {
-                     // yes, then update last ping time
-                     msptr->lping = ct;
-                     //printf("[master] ping from game service %x\n", msptr->addr);
-                     break;
-                  }
-               }
-
-               // did we have it?
-               if (msptr == 0) {
-                  // no, then add it
-                  msptr = (MASS_MASTERSERVICE*)malloc(sizeof(MASS_MASTERSERVICE));
-                  msptr->addr = fromAddr;
-                  msptr->lping = ct;
-                  mass_ll_add((void**)&services, msptr);
-                  printf("[master] new game service %x\n", msptr->addr);
-                  // also, start up ONE child service
-                  //mass_master_childStart(&sock, services);
-               }
-               break;
          }
          // TODO: fix this entire mess with a select(..) call
-         //       i am doing it this way at first to keep it simple
-         Sleep(1000);
-         
-         // drop services that have timed out
-         time(&ct);
-         for (MASS_MASTERSERVICE *ptr = services; ptr != 0; ptr = (MASS_MASTERSERVICE*)mass_ll_next(ptr)) {
-            if (ct - ptr->lping > MASS_MASTER_GHOST_TMEOUT) {
-               printf("[master] dropped (ping timeout) service %x\n", ptr->addr);
-               mass_ll_rem((void**)&services, ptr);
-               // reset (expensive but simple way ...but can be optimized)
-               ptr = services;
-               if (ptr == 0)
-                  break;
-            }
-         }
-
-         // do we have entities waiting to be assigned to a game host child?
-         if (cservices != 0 && waitingEntities != 0) {
-            for (MASS_WAITINGENTITY *ptr = waitingEntities; ptr != 0; ptr = (MASS_WAITINGENTITY*)mass_ll_next(ptr)) {
-               // start check adopt process to determine best child service to handle entity
-               MASS_ENTITYCHECKADOPT      pkteca;
-
-               // if already sent just ignore it (need a timeout value)
-               // TODO: TIMEOUT VALUE FOR EACH ENTRY!! OR FIX WAY SYS WORKS!!
-               // problem: if there is no idle service or service with in 
-               // interaction range then this never gets sent again.. might
-               // actually want to wait for the ACCEPT/REJECT send for adopt
-               // entity packet and RESET ptr->send inside of those blocks..
-               // also might have to add eid field to ACCEPT/REJECT packets!!
-               if (ptr->sent > 0)
-                  continue;               
-
-               pkteca.hdr.length = sizeof(MASS_ENTITYCHECKADOPT);
-               pkteca.hdr.type = MASS_ENTITYCHECKADOPT_TYPE;
-               pkteca.askingServiceID = args->laddr;
-               pkteca.bestDistance = MASS_INTERACT_RANGE * 2;
-               pkteca.bestServiceID = 0;
-               pkteca.bestServicePort = 0;
-               pkteca.bestCPUID = 0;
-               pkteca.bestCPUPort = 0;
-               pkteca.bestCPUScore = 0;
-               pkteca.entityID = ptr->entity.entityID;
-               pkteca.x = ptr->entity.lx;
-               pkteca.y = ptr->entity.ly;
-               pkteca.z = ptr->entity.lz;
-
-               mass_net_sendto(&sock, &pkteca, sizeof(pkteca), cservices->addr);
-               printf("[master] send entity adopt for entity %x\n", ptr->entity.entityID);
-
-               ptr->sent = 1;
-            }
-         }
       }
    }
 

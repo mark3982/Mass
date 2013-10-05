@@ -77,8 +77,8 @@ void mass_ghost_gb(MASS_MP_SOCK *sock, MASS_ENTITYCHAIN *entities, uint32 master
 
    MASS_ENTITYCHECKADOPT2           pktca;
 
-   pktca.hdr.type = MASS_ENTITYADOPTREDIRECT_TYPE;
-   pktca.hdr.length = sizeof(MASS_ENTITYADOPT);
+   pktca.hdr.type = MASS_ENTITYCHECKADOPT2_TYPE;
+   pktca.hdr.length = sizeof(MASS_ENTITYCHECKADOPT2);
 
    pktca.askingServiceID = ourID;
    pktca.askingServiceDom = ourDom;
@@ -104,7 +104,7 @@ void mass_ghost_gb(MASS_MP_SOCK *sock, MASS_ENTITYCHAIN *entities, uint32 master
             pktca.z = cec->entity.lz;
             cec->entity.flags |= MASS_ENTITY_LOCKED;
             // TODO: change to send straight to the ghost group instead of master
-            mass_net_sendto(sock, &pktca, sizeof(MASS_ENTITYADOPT), MASS_GHOST_GROUP);
+            mass_net_sendto(sock, &pktca, sizeof(MASS_ENTITYCHECKADOPT2), MASS_GHOST_GROUP);
          }
       }
    }
@@ -179,6 +179,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
    MASS_EACREQC            *eacreqc;
    uint32                  masterChildCount;
 
+   eacreqc = 0;
 
    masterChildCount = 0;
 
@@ -190,7 +191,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
 
    domains = 0;
 
-   mass_net_create(&sock, args->laddr, args->bcaddr);   
+   mass_net_create(&sock, args->laddr, args->bcaddr);
 
    buf = malloc(0xffff);
 
@@ -245,18 +246,24 @@ DWORD WINAPI mass_ghost_child(void *arg) {
             }
          } /* domain loop */
       
-         /* resend packets with not ack received */
+         // allow network subsystem to do anything it needs to do on interval
          mass_net_tick(&sock);
 
-         //args->naddr, args->nport
+
+         // remove old requests that were never completed, and unlock entities
+         time_t            ct;
+
+         time(&ct);
+
+         for (MASS_EACREQC *c = eacreqc; c != 0; c = (MASS_EACREQC*)mass_ll_next(c)) {
+            if (ct - c->startTime > 30) {
+               mass_ll_rem((void**)&eacreqc, c);
+               // TODO: unlock entity
+               break;
+            }
+         }
 
          while (mass_net_recvfrom(&sock, buf, 0xffff, &fromAddr)) {
-            
-            if (args->naddr != la) {
-               printf("CHANGED\n");
-               la = args->naddr;
-            }
-
             pkt = (MASS_PACKET*)buf;
             switch (pkt->type) {
                /*
@@ -467,6 +474,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                   MASS_ENTITYADOPT                    pktea;
                   MASS_DOMAIN                         *dom;
                   MASS_ENTITYCHAIN                    *e;
+                  time_t                              ct;
                   // A. We sent out a MASS_ENTITYCHECKADOPT2 from the group break code path..
 
                   // We are going to get zero or more replies and we must also know
@@ -491,11 +499,12 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                   }
 
                   if (!c) {
+                     time(&ct);
                      c = (MASS_EACREQC*)malloc(sizeof(MASS_EACREQC));
                      memset(c, 0, sizeof(MASS_EACREQC));
                      c->rid = pkteca2r->rid;
                      c->replyCnt = masterChildCount;
-                     c->startTime = clock();
+                     c->startTime = ct;
                      c->bestCPUScore = ~0;
                      mass_ll_add((void**)eacreqc, c);
                   }
@@ -505,7 +514,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                      c->bestCPUAddr = fromAddr;
                   }
 
-                  if (pkteca2r->distance < c->bestAdoptDistance || c->bestAdoptDistance == 0.0) {
+                  if ((pkteca2r->distance < c->bestAdoptDistance) || c->bestAdoptDistance == 0.0) {
                      c->bestAdoptDistance = pkteca2r->distance;
                      c->bestAdoptDom = pkteca2r->domain;
                      c->bestAdoptAddr = fromAddr;
@@ -582,50 +591,8 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                   // send reply back to node and dom specified in request packet
                   mass_net_sendto(&sock, &pktr, sizeof(MASS_ENTITYCHECKADOPT2R), pkteca2->askingServiceID);
                   break;
-               }
-               case MASS_ENTITYCHECKADOPT_TYPE:
-                  f64         x, y, z;
-                  uint32      score;
-
-                  pktca = (MASS_ENTITYCHECKADOPT*)pkt;
-                  printf("[child] got check adopt for entity %x\n", pktca->entityID);
-                  /* 1. check if in interaction range of an existing domain */
-                  for (cd = domains, score = 0; cd != 0; cd = (MASS_DOMAIN*)mass_ll_next(cd)) {
-                     /* A. are we above our max entity count */
-                     if (cd->ecnt >= MASS_MAXENTITY)
-                        continue;
-                     /* calculate primitive CPU usage */
-                     score += cd->ecnt * cd->ecnt;
-                     /* B. check if entity is with-in interaction range */
-                     mass_ghost_cwc(cd->entities, &x, &y, &z);
-                     x = MASS_DISTANCE(pktca->x, pktca->y, pktca->z, x, y, z);
-                     if (x < MASS_INTERACT_RANGE) {
-                        /* B.1. see if we can beat existing */
-                        if (pktca->bestServiceID == 0 || (pktca->bestDistance > x)) {
-                           pktca->bestServiceID = args->laddr;
-                           pktca->askingServicePort = servicePort;
-                           pktca->bestServiceDom = cd->dom;
-                        }
-                     }
-                  }
-
-                  // service with the smallest CPU load
-                  if (pktca->bestCPUID == 0 || pktca->bestCPUScore > score) {
-                     pktca->bestCPUID = args->laddr;
-                     pktca->bestCPUPort = servicePort;
-                     pktca->bestCPUScore = score;
-                  }
-
-                  // it goes home or to the next in chain
-                  if (args->naddr == 0) {
-                     fromAddr = pktca->askingServiceID;
-                  } else {
-                     fromAddr = args->naddr;
-                  }
-
-                  mass_net_sendto(&sock, pktca, sizeof(MASS_ENTITYCHECKADOPT), fromAddr);
-                  break;
-            }
+               } // local scope for switch
+            } // switch statement
          } // packet loop
       Sleep(10);
    } // main loop   

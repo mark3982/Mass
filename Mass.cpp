@@ -253,13 +253,13 @@ int _tmain(int argc, _TCHAR* argv[])
    printf("[mass] waiting for master service to start\n");
    Sleep(1000);
 
-   childargs[0].laddr = 0x1001;
+   childargs[0].laddr = MASS_GHOST_FIRST;
    childargs[0].bcaddr = MASS_GHOST_GROUP;
    childargs[0].naddr = 0;
    childargs[0].suraddr = MASS_MASTER_ADDR;
    CreateThread(NULL, 0, mass_ghost_child, &childargs[0], 0, NULL);
 
-   childargs[1].laddr = 0x1002;
+   childargs[1].laddr = MASS_GHOST_FIRST + 1;
    childargs[1].bcaddr = MASS_GHOST_GROUP;
    childargs[1].naddr = 0;
    childargs[1].suraddr = MASS_MASTER_ADDR;

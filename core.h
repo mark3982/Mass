@@ -18,6 +18,7 @@ typedef uint64 ENTITYID;
 #define MASS_GHOST_GROUP               0x200
 #define MASS_MASTER_ADDR               0x2001
 #define MASS_MASTER_BCADDR             0x100
+#define MASS_GHOST_FIRST               0x4001
 
 #define RANDFP() ((double)rand() / (double)RAND_MAX)
 
