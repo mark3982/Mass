@@ -12,7 +12,7 @@ typedef unsigned long long uint64;
 
 typedef uint64 ENTITYID;
 
-#define MASS_INTERACT_RANGE            1000.0
+#define MASS_INTERACT_RANGE            10.0
 #define MASS_MASTER_GHOST_TMEOUT       30000
 #define MASS_MAXENTITY                 10
 #define MASS_GHOST_GROUP               0x200

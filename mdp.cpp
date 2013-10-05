@@ -1,7 +1,6 @@
 #include "mp.h"
 #include "linklist.h"
 
-
 CRITICAL_SECTION  mutex;
 MASS_MP_SOCK      *sockchain = 0;
 
@@ -9,14 +8,14 @@ void mass_net_init() {
    InitializeCriticalSection(&mutex);
 }
 
-int _mass_net_sendto(MASS_MP_SOCK *mps, void *buf, uint16 sz, uint32 addr, char *file, char *func, int line) {
+int _mass_net_sendto(MASS_MP_SOCK *mps, void *buf, uint16 sz, uint32 addr, char *file, char *func, int line, uint8 sts) {
    MASS_MP_PKT          *np;
 
    EnterCriticalSection(&mutex);
 
    for (MASS_MP_SOCK *cs = sockchain; cs != 0; cs = (MASS_MP_SOCK*)mass_ll_next(cs)) {
       // do not send to ourselves
-      if (mps->addr == addr)
+      if (mps->addr == addr && sts == 0)
          continue;
       // send to everyone if addr is zero, but if not only if addr matches
       // the local address or/and the broadcast address

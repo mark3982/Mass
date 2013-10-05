@@ -40,6 +40,17 @@ typedef struct _MASS_DOMAIN {
    uint32                  lgb;            /* tick timer */
    uint32                  lsm;            /* tick timer */
    uint16                  ecnt;           /* entity count for THIS domain */
+
+   uint32                  sm_last;        /* time initiated (for timeout) */
+   uint32                  sm_count;       /* replies needed for completetion */
+   /* the stats for the currently choosen best */
+   uint32                  sm_bestAddr;
+   uint16                  sm_bestDom;
+   f64                     sm_bestDis;
+   uint32                  sm_bestTake;
+   uint32                  sm_totalEntities;
+   /* this is special and is incremented on each usage */
+   uint32                  sm_rid;
 } MASS_DOMAIN;
 
 DWORD WINAPI mass_ghost_entry(void *arg);

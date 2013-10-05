@@ -40,15 +40,18 @@ typedef struct _MASS_SMCHECK {
    f64               x, y, z;                // averaged center position for sender
    f64               irange;                 // interaction range for sender
    uint32            entityCnt;              // entity count for sender
+   uint32            rid;
 } MASS_SMCHECK;
 
 typedef struct _MASS_SMREPLY {
    MASS_PACKET       hdr;
    uint32            replyID;                // (sender) id of server to merge with
-   uint32            replyPort;              // (sender) port of server to merge with
    uint16            replyDom;               // (sender) the dom that will merge
    uint16            checkingDom;            // the dom id of the checker (who issued the SMCHECK)
-   uint32            maxCount;               // (sender) maximum number of entities that can be merged at this time
+   f64               distance;               // distance calculateds
+   uint32            maxTake;                /* max we can take */
+   uint32            totalEntities;          /* total entities */
+   uint32            rid;
 } MASS_SMREPLY;
 
 typedef struct _MASS_ACCEPTENTITY {

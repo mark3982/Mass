@@ -11,7 +11,12 @@
 /* global used to quickly find new unused id */
 uint8             mapdom[0xffff / 8];
 
-void mass_ghost_sm(MASS_MP_SOCK *sock, MASS_ENTITYCHAIN *entities, uint16 askingDom, uint32 masterID, uint32 localID) {
+void mass_ghost_sm(MASS_MP_SOCK *sock, 
+                   MASS_ENTITYCHAIN *entities, 
+                   uint16 askingDom, 
+                   uint32 masterID, 
+                   uint32 localID,
+                   uint32 rid) {
    // calculate averagedcenter point of entities
    f64            ax, ay, az;
    MASS_ENTITY    *ce;
@@ -50,8 +55,9 @@ void mass_ghost_sm(MASS_MP_SOCK *sock, MASS_ENTITYCHAIN *entities, uint16 asking
    smc.x = ax;
    smc.y = ay;
    smc.z = az;
+   smc.rid = rid;
 
-   mass_net_sendto(sock, &smc, sizeof(MASS_SMCHECK), masterID);
+   mass_net_sendtom2(sock, &smc, sizeof(MASS_SMCHECK), MASS_GHOST_GROUP);
 }
 
 void mass_ghost_gb(MASS_MP_SOCK *sock, MASS_ENTITYCHAIN *entities, uint32 masterID, uint32 ourID, uint16 ourDom) {
@@ -165,27 +171,25 @@ DWORD WINAPI mass_ghost_child(void *arg) {
    MASS_GHOSTCHILD_ARGS    *args;
    void                    *buf;
    MASS_PACKET             *pkt;
-   MASS_ENTITYCHECKADOPT   *pktca;
    MASS_SERVICEREADY       sr;
    MASS_CHGSERVICENXT      *pktcsn;
    time_t                  ct;
    int                     x;
    uint32                  fromAddr;
-   uint16                  fromPort;
-   int                     x_firstadopt; // bad hackery
    MASS_DOMAIN             *domains;
    MASS_MP_SOCK            sock;
    MASS_DOMAIN             *cd;
    MASS_EACREQC            *eacreqc;
    uint32                  masterChildCount;
+   uint32                  lastDbgOut;
 
    eacreqc = 0;
+
+   lastDbgOut = 0;
 
    masterChildCount = 0;
 
    args = (MASS_GHOSTCHILD_ARGS*)arg;
-
-   x_firstadopt = 0;
 
    servicePort = 0;
 
@@ -205,9 +209,19 @@ DWORD WINAPI mass_ghost_child(void *arg) {
    uint32      la = 0;
    uint32      lp = 0;
 
-   // main loop
    while (1) {
-         // domain loop (tick each domain of entities)
+         /* domain loop (drops empty domains) */
+         for (cd = domains; cd ; cd = (MASS_DOMAIN*)mass_ll_next(cd)) {
+            /* no entities left in this domain we need to remove it */
+            if (!cd->entities) {
+               /* it only removes one per cycle but that should be sufficent */
+               mass_ll_rem((void**)&domains, cd);
+               printf("[child:%x] dropped domain %x\n", args->laddr, cd->dom);
+               free(cd);
+               break;
+            }
+         }
+         /* domain loop (tick each domain of entities) */
          for (cd = domains; cd != 0; cd = (MASS_DOMAIN*)mass_ll_next(cd)) {
             // do duties needed for hosting of entities (sending updates to clients... etc)
             // 1. update entity positions
@@ -232,25 +246,44 @@ DWORD WINAPI mass_ghost_child(void *arg) {
             time(&ct);
 
             /* check for entities outside domain interaction range limit */
-            if (ct - cd->lgb > 5000) {
+            if (ct - cd->lgb > 15) {
                cd->lgb = ct;
                printf("[child:%x:%x] doing group break..\n", args->laddr, servicePort);
                mass_ghost_gb(&sock, cd->entities, args->suraddr, args->laddr, cd->dom);
             }
             
             /* check for server merge */
-            if (ct - cd->lsm > 5000) {
+            if (ct - cd->lsm > 15) {
                cd->lsm = ct;
                printf("[child:%x:%x] doing server merge check\n", args->laddr, servicePort);
-               mass_ghost_sm(&sock, cd->entities, cd->dom, args->suraddr, args->laddr);
+
+               cd->sm_rid++;
+               cd->sm_bestAddr = 0;
+               cd->sm_bestTake = 0;
+               cd->sm_bestDis = 0.0;
+               cd->sm_bestDom = 0;
+               cd->sm_count = masterChildCount; /* this is updated by a packet sent by the master */
+               cd->sm_last = ct;
+
+               mass_ghost_sm(&sock, cd->entities, cd->dom, args->suraddr, args->laddr, cd->sm_rid);
             }
-         } /* domain loop */
+         } /* end of domain iteration loop */
       
-         // allow network subsystem to do anything it needs to do on interval
+         /* allow network subsystem to do anything it needs to do on interval */
          mass_net_tick(&sock);
 
+         time(&ct);
 
-         // remove old requests that were never completed, and unlock entities
+         if (ct - lastDbgOut > 10) {
+            lastDbgOut = ct;
+            for (cd = domains; cd; cd = (MASS_DOMAIN*)mass_ll_next(cd)) {
+               for (MASS_ENTITYCHAIN *ec = cd->entities; ec; ec = (MASS_ENTITYCHAIN*)mass_ll_next(ec)) {
+                  printf("[CLIENTDBG] client:%x dom:%x entity:%x\n", args->laddr, cd->dom, ec->entity.entityID);
+               }
+            }
+         }
+
+         /* remove old requests that were never completed, and unlock entities */
          time_t            ct;
 
          time(&ct);
@@ -259,6 +292,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
             if (ct - c->startTime > 30) {
                mass_ll_rem((void**)&eacreqc, c);
                // TODO: unlock entity
+               printf("[child] TODO: UNLOCK ENTITIES!! LOL!!\n");
                break;
             }
          }
@@ -277,14 +311,28 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                   MASS_SMCHECK         *pktsmc;
                   MASS_SMREPLY         pktsmr;
                   f64                  x, y, z;               
+                  f64                  bestDis;
+                  uint16               bestDom;
+                  uint16               bestCnt; // TODO: .. what if we needed more? (check me later)
+                  uint32               bestTake;
 
                   pktsmc = (MASS_SMCHECK*)pkt;
-                  printf("[child:%x:%x] SMCHECK\n", args->laddr, servicePort);
+
+                  pktsmr.hdr.length = sizeof(MASS_SMREPLY);
+                  pktsmr.hdr.type = MASS_SMREPLY_TYPE;
+                  pktsmr.replyID = args->laddr;
+                  pktsmr.checkingDom = pktsmc->askingDom;
+
+                  bestDom = 0;
+                  bestCnt = 0;
+                  bestDis = 0.0;
+                  bestTake = 0;
+
                   /* determine if a child can adopt the entities in a server merge */
                   for (cd = domains; cd != 0; cd = (MASS_DOMAIN*)mass_ll_next(cd)) {
                      /* do not ask ourselves */
                      if (pktsmc->askingID == args->laddr && pktsmc->askingDom == cd->dom) {
-                        x = MASS_INTERACT_RANGE + 1;              /* just to make sure we fail the next condition */
+                        continue;
                      } else {
                         mass_ghost_cwc(cd->entities, &x, &y, &z);
                         //x = MASS_DISTANCE(x, y, z, pktsmc->x, pktsmc->y, pktsmc->z);
@@ -294,24 +342,25 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                         x = sqrt(x*x+y*y+z*z);
                      }
                      /* if we are close enough and have less than maximum entities */
-                     if (x < MASS_INTERACT_RANGE && cd->ecnt < MASS_MAXENTITY) {
-                        pktsmr.hdr.length = sizeof(MASS_SMREPLY);
-                        pktsmr.hdr.type = MASS_SMREPLY_TYPE;
-                        pktsmr.replyID = args->laddr;
-                        pktsmr.replyDom = cd->dom;
-                        pktsmr.checkingDom = pktsmc->askingDom;
-                        pktsmr.maxCount = MASS_MAXENTITY - cd->ecnt;
-                        mass_net_sendto(&sock, &pktsmr, sizeof(MASS_SMREPLY), pktsmc->askingID);
-                        printf("[child] sent GOOD reply for server merge\n");
-                        break;
+                     if ((x < MASS_INTERACT_RANGE || bestDis == 0.0) && cd->ecnt < MASS_MAXENTITY) {
+                        bestDom = cd->dom;
+                        bestTake = MASS_MAXENTITY - cd->ecnt;
+                        bestCnt = cd->ecnt;
+                        bestDis = x;
+                        printf("[child] SM=GOOD DOM=%x FROM:%x\n", cd->dom, pktsmc->askingID);
                      }
                   }
 
-                  /* if no match was found send to next child in chain */
-                  if (cd == 0) {
-                     if (args->naddr != 0)
-                           mass_net_sendto(&sock, pktsmc, sizeof(MASS_SMCHECK), args->naddr);
-                  }
+                  printf("[child:%x] SMCHECK DIS=%f\n", args->laddr, bestDis);
+
+                  pktsmr.replyDom = bestDom;
+                  pktsmr.maxTake = bestTake;
+                  pktsmr.totalEntities = bestCnt;
+                  pktsmr.distance = bestDis;
+
+                  pktsmr.rid = pktsmc->rid;
+
+                  mass_net_sendtom2(&sock, &pktsmr, sizeof(MASS_SMREPLY), pktsmc->askingID);
                   break;
                }
                /*
@@ -319,33 +368,66 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                   this SMREPLY. This is different from the CHECKADOPT as it must propagate all domains before the
                   reply is sent back.
                */
-               case MASS_SMREPLY_TYPE:
+               case MASS_SMREPLY_TYPE: 
+               {
                   MASS_SMREPLY         *pktsmr;
-                  MASS_ENTITYADOPT      pktae;
-                  
+                  MASS_ENTITYADOPT     pktea;
 
                   pktsmr = (MASS_SMREPLY*)pkt;
-                  pktae.hdr.type = MASS_ENTITYADOPT_TYPE;
-                  pktae.hdr.length = sizeof(MASS_ENTITYADOPT);
 
-                  /* get the relevant domain (on our side) */
                   cd = mass_getdom(domains, pktsmr->checkingDom);
 
-                  /* send adopts to the domain that replied */
-                  pktae.dom = pktsmr->replyDom;
-                  /* what dom is sending this adopt entity packet */
-                  pktae.fromDom = cd->dom;
+                  /* if no dom found then short-circuit out */
+                  if (!cd)
+                     break;
 
-                  /* send them as many entities as we can */
-                  for (MASS_ENTITYCHAIN *ec = cd->entities; ec != 0 && pktsmr->maxCount > 0; ec = (MASS_ENTITYCHAIN*)mass_ll_next(ec), --pktsmr->maxCount) {
-                     /* if not locked them send it AND lock it */
-                     if ((ec->entity.flags & MASS_ENTITY_LOCKED) == 0) {
-                        memcpy(&pktae.entity, &ec->entity, sizeof(MASS_ENTITY));
-                        ec->entity.flags |= MASS_ENTITY_LOCKED;
+                  if (pktsmr->rid != cd->sm_rid) {
+                     /* this can happen, but should be rare maybe, but if it
+                        does happen I want to know and be able to tell if it
+                        is happening a lot hopefully
+                     */
+                     printf("[child] got bad RID for SMREPLY\n");
+                     break;
+                  }
+
+                  cd->sm_count--;
+
+                  /* 
+                    do not take from a bigger blob basically;
+                    also trying to stop domains from constantly
+                    handing back and forth and to instead build
+                    domain's with large number of entities
+                  */
+                  if (pktsmr->totalEntities > cd->ecnt)
+                     break;
+
+                  /* these fields are initialized when the SMCHECK is sent */
+                  if ((pktsmr->distance < cd->sm_bestDis || cd->sm_bestDis == 0.0) && pktsmr->distance != 0.0) {
+                     cd->sm_bestAddr = fromAddr;
+                     cd->sm_bestTake = pktsmr->maxTake;
+                     cd->sm_bestDis = pktsmr->distance;
+                     cd->sm_bestDom = pktsmr->replyDom;
+                  }
+
+                  if (cd->sm_count <= 0) {
+                     /* only if we got at least one good reply */
+                     if (cd->sm_bestDis == 0.0)
+                        break;
+
+                     pktea.hdr.length = sizeof(pktea);
+                     pktea.hdr.type = MASS_ENTITYADOPT_TYPE;
+                     pktea.fromDom = cd->dom;
+                     pktea.dom = cd->sm_bestDom;
+
+                     /* this query has completed; send some entities */
+                     for (MASS_ENTITYCHAIN *ec = cd->entities; ec && cd->sm_bestTake > 0; ec = (MASS_ENTITYCHAIN*)mass_ll_next(ec)) {
+                        memcpy(&pktea.entity, &ec->entity, sizeof(ec->entity));
+                        mass_net_sendtom2(&sock, &pktea, sizeof(pktea), cd->sm_bestAddr);
+                        cd->sm_bestTake--;
                      }
-                     mass_net_sendto(&sock, &pktae, sizeof(MASS_ENTITYADOPT), fromAddr);
                   }
                   break;
+               }
                case MASS_CHGSERVICENXT_TYPE:
                   // called to modify the chain; args is set instead of a local variable to facilitate
                   // the ability for the child service to restart after a crash and still maintain it's
@@ -378,6 +460,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                      cd->entities = 0;
                      cd->lgb = 0;
                      cd->lsm = 0;
+                     cd->sm_rid = 100;
                      mass_ll_add((void**)&domains, cd);
                   } else {
                      printf("[child] DOM specified; using existing\n");
@@ -396,7 +479,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                         pktre.hdr.type = MASS_REJECTENTITY_TYPE;
                         pktre.hdr.length = sizeof(MASS_REJECTENTITY);
                         pktre.dom = pktea->fromDom;                  
-                        mass_net_sendto(&sock, &pktre, sizeof(MASS_REJECTENTITY), fromAddr);
+                        mass_net_sendtom2(&sock, &pktre, sizeof(MASS_REJECTENTITY), fromAddr);
                         break;
                      }
                   }
@@ -416,7 +499,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                      pktae.hdr.type = MASS_ACCEPTENTITY_TYPE;
                      pktae.hdr.length = sizeof(MASS_ACCEPTENTITY);
                      pktae.dom = pktea->fromDom;
-                     mass_net_sendto(&sock, &pktae, sizeof(MASS_ACCEPTENTITY), fromAddr);
+                     mass_net_sendtom2(&sock, &pktae, sizeof(MASS_ACCEPTENTITY), fromAddr);
                      cd->ecnt++;
                   }
                   break;
@@ -440,7 +523,6 @@ DWORD WINAPI mass_ghost_child(void *arg) {
 
                   _pktae = (MASS_ACCEPTENTITY*)pkt;
 
-                  printf("_pktae->dom:%x\n", _pktae->dom);
                   cd = mass_getdom(domains, _pktae->dom);
       
                   /* remove the entity from our entity chain */
@@ -453,11 +535,6 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                      }
                   }
                   break;
-               //case MASS_ENTITYADOPTREDIRECT_TYPE:
-               //   MASS_ENTITYADOPTREDIRECT   *pktear;
-               //   pktear = (MASS_ENTITYADOPTREDIRECT*)pkt;
-               //   fromAddr = pktear->replyID;
-               //   fromPort = pktear->replyPort;
                case MASS_MASTERCHILDCOUNT_TYPE:
                {
                   MASS_MASTERCHILDCOUNT         *pktmcc;
