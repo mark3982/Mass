@@ -17,6 +17,7 @@
 #define MASS_ENTITYADOPTREDIRECT_TYPE           111      // actually MASS_ENTITYADOPT_TYPE, but this allows redirect through the master
 #define MASS_ENTITYCHECKADOPT2_TYPE             112
 #define MASS_ENTITYCHECKADOPT2R_TYPE            113
+#define MASS_MASTERCHILDCOUNT_TYPE              114
 
 #define MASS_ENTITYCHECKADOPT_FINAL             0x01     // set when packet is being sent to final service
 
@@ -24,6 +25,11 @@ typedef struct _MASS_PACKET {
    uint32            length;
    uint16            type;
 } MASS_PACKET;
+
+typedef struct _MASS_MASTERCHILDCOUNT {
+   MASS_PACKET       hdr;
+   uint32            count;
+} MASS_MASTERCHILDCOUNT;
 
 // server merge check packet
 typedef struct _MASS_SMCHECK {

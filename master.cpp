@@ -41,6 +41,7 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
    time_t                  ct;
    MASS_MP_SOCK            sock;
    uint32                  fromAddr;
+   MASS_MASTERCHILDCOUNT   pktmcc;
 
    printf("master up\n");
 
@@ -53,6 +54,11 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
    waitingEntities = 0;
    services = 0;
    cservices = 0;
+               
+   // master child count packet prep
+   pktmcc.hdr.length = sizeof(MASS_MASTERCHILDCOUNT);
+   pktmcc.hdr.type = MASS_MASTERCHILDCOUNT_TYPE;
+   pktmcc.count = 0;
 
    // make some random entities
    for (int x = 0; x < 4; ++x) {
@@ -204,6 +210,10 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
                mass_ll_add((void**)&cservices, csrv);               
 
                printf("[master] child service added and linked into chain %x\n", csrv->addr);
+
+               // keep track of the number of g-host services and relay this
+               pktmcc.count++;
+               mass_net_sendto(&sock, &pktmcc, sizeof(MASS_MASTERCHILDCOUNT), MASS_GHOST_GROUP);
                break;
             // track game services (not actual child service!)
             case MASS_MASTERPING_TYPE:

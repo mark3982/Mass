@@ -177,6 +177,10 @@ DWORD WINAPI mass_ghost_child(void *arg) {
    MASS_MP_SOCK            sock;
    MASS_DOMAIN             *cd;
    MASS_EACREQC            *eacreqc;
+   uint32                  masterChildCount;
+
+
+   masterChildCount = 0;
 
    args = (MASS_GHOSTCHILD_ARGS*)arg;
 
@@ -442,11 +446,20 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                      }
                   }
                   break;
-               case MASS_ENTITYADOPTREDIRECT_TYPE:
-                  MASS_ENTITYADOPTREDIRECT   *pktear;
-                  pktear = (MASS_ENTITYADOPTREDIRECT*)pkt;
-                  fromAddr = pktear->replyID;
-                  fromPort = pktear->replyPort;
+               //case MASS_ENTITYADOPTREDIRECT_TYPE:
+               //   MASS_ENTITYADOPTREDIRECT   *pktear;
+               //   pktear = (MASS_ENTITYADOPTREDIRECT*)pkt;
+               //   fromAddr = pktear->replyID;
+               //   fromPort = pktear->replyPort;
+               case MASS_MASTERCHILDCOUNT_TYPE:
+               {
+                  MASS_MASTERCHILDCOUNT         *pktmcc;
+
+                  pktmcc = (MASS_MASTERCHILDCOUNT*)pkt;
+
+                  masterChildCount = pktmcc->count;
+                  break;
+               }
                case MASS_ENTITYCHECKADOPT2R_TYPE:
                {
                   MASS_ENTITYCHECKADOPT2R             *pkteca2r;
