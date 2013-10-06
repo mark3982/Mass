@@ -238,9 +238,9 @@ DWORD WINAPI mass_ghost_child(void *arg) {
 
             /* set random energy levels for testing */
             for (MASS_ENTITYCHAIN *ec = cd->entities; ec != 0; ec = (MASS_ENTITYCHAIN*)mass_ll_next(ec)) {
-               ec->entity.lex = RANDFP() * 10.0 - 5.0;
-               ec->entity.ley = RANDFP() * 10.0 - 5.0;
-               ec->entity.lez = RANDFP() * 10.0 - 5.0;
+               ec->entity.lex = RANDFP() * 2.0 - 1.0;
+               ec->entity.ley = RANDFP() * 2.0 - 1.0;
+               ec->entity.lez = RANDFP() * 2.0 - 1.0;
             }
 
             time(&ct);
@@ -283,6 +283,9 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                   printf("x:%.2f y:%.2f z:%.2f\n", ec->entity.lx, ec->entity.ly, ec->entity.lz);
                }
             }
+
+            printf("BytesPerSecond:%f BitsPerSecond:%f\n", mdp_byteOutAvg, mdp_byteOutAvg * 8.0);
+            printf("BytesPerSecond[10]:%f BitsPerSecond[10]:%f\n", mdp_byteOutAvg10, mdp_byteOutAvg10 * 8.0);
          }
 
          /* remove old requests that were never completed, and unlock entities */
@@ -349,7 +352,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                         bestTake = MASS_MAXENTITY - cd->ecnt;
                         bestCnt = cd->ecnt;
                         bestDis = x;
-                        printf("[child] SM=GOOD DOM=%x FROM:%x\n", cd->dom, pktsmc->askingID);
+                        //printf("[child] SM=GOOD DOM=%x FROM:%x\n", cd->dom, pktsmc->askingID);
                      }
                   }
 

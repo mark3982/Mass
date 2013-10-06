@@ -23,6 +23,9 @@ typedef struct _MASS_MP_SOCK {
    MASS_MP_PKT                *in;
 } MASS_MP_SOCK;
 
+extern f64               mdp_byteOutAvg;
+extern f64               mdp_byteOutAvg10;
+
 /*
    The sendtom2 is used to send a packet not only to it's destination, but also to
    send a packet to ourselves. This send to ourself reduces the complexity of the
