@@ -24,7 +24,7 @@ typedef uint64 ENTITYID;
 
 ;  // strange MSVC IDE error and this fixed it..
 
-#define MASS_DISTANCE(a,b,c,x,y,z) (sqrt((a)-(x)*(a)-(x) + (b)-(y)*(b)-(y) + (c)-(z)*(c)-(z)))
+#define MASS_DISTANCE(a,b,c,x,y,z) (sqrt(((a)-(x))*((a)-(x)) + ((b)-(y))*((b)-(y)) + ((c)-(z))*((c)-(z))))
 
 #define MASS_ENTITY_LOCKED             0x01
 

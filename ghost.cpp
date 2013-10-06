@@ -238,9 +238,9 @@ DWORD WINAPI mass_ghost_child(void *arg) {
 
             /* set random energy levels for testing */
             for (MASS_ENTITYCHAIN *ec = cd->entities; ec != 0; ec = (MASS_ENTITYCHAIN*)mass_ll_next(ec)) {
-               ec->entity.lex = RANDFP() * 100.0;
-               ec->entity.ley = RANDFP() * 100.0;
-               ec->entity.lez = RANDFP() * 100.0;
+               ec->entity.lex = RANDFP() * 10.0 - 5.0;
+               ec->entity.ley = RANDFP() * 10.0 - 5.0;
+               ec->entity.lez = RANDFP() * 10.0 - 5.0;
             }
 
             time(&ct);
@@ -278,7 +278,9 @@ DWORD WINAPI mass_ghost_child(void *arg) {
             lastDbgOut = ct;
             for (cd = domains; cd; cd = (MASS_DOMAIN*)mass_ll_next(cd)) {
                for (MASS_ENTITYCHAIN *ec = cd->entities; ec; ec = (MASS_ENTITYCHAIN*)mass_ll_next(ec)) {
-                  printf("[CLIENTDBG] client:%x dom:%x entity:%x\n", args->laddr, cd->dom, ec->entity.entityID);
+                  printf("[CLIENTDBG] client:%x dom:%x entity:%x ", args->laddr, cd->dom, ec->entity.entityID);
+                  printf("d:%.2f ", MASS_DISTANCE(0.0, 0.0, 0.0, ec->entity.lx, ec->entity.ly, ec->entity.lz));
+                  printf("x:%.2f y:%.2f z:%.2f\n", ec->entity.lx, ec->entity.ly, ec->entity.lz);
                }
             }
          }
@@ -583,7 +585,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                      c->replyCnt = masterChildCount;
                      c->startTime = ct;
                      c->bestCPUScore = ~0;
-                     mass_ll_add((void**)eacreqc, c);
+                     mass_ll_add((void**)&eacreqc, c);
                   }
 
                   if (pkteca2r->cpuLoad < c->bestCPUScore) {
@@ -609,7 +611,9 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                            break;
                      }
 
-                     if (e) {
+                     /* make sure both 'e' AND 'eacreqc' are valid (because the later
+                        can end up zero if it has no items in the linked list */
+                     if (e && eacreqc) {
                         pktea.hdr.length = sizeof(MASS_ENTITYADOPT);
                         pktea.hdr.type = MASS_ENTITYADOPT_TYPE;
                         memcpy(&pktea.entity, &e->entity, sizeof(MASS_ENTITY));
@@ -641,6 +645,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                   pkteca2 = (MASS_ENTITYCHECKADOPT2*)pkt;
 
                   bestDis = 0.0;
+                  bestDom = 0;
 
                   for (cd = domains, score = 0; cd != 0; cd = (MASS_DOMAIN*)mass_ll_next(cd)) {
                      if (cd->ecnt > MASS_MAXENTITY)
