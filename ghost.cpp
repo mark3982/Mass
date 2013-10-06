@@ -209,7 +209,27 @@ DWORD WINAPI mass_ghost_child(void *arg) {
    uint32      la = 0;
    uint32      lp = 0;
 
+   uint32      lc;
+   f64         lcp10;
+   uint32      lctime;
+
+   lcp10 = 0.0;
+   lctime = 0;
+   lc = 0;
+
    while (1) {
+         Sleep(1);
+
+         lc++;
+
+         time(&ct);
+
+         if (ct - lctime > 10) {
+            lctime = ct;
+            lcp10 = (f64)lc / 10.0;
+            lc = 0;
+         }
+
          /* domain loop (drops empty domains) */
          for (cd = domains; cd ; cd = (MASS_DOMAIN*)mass_ll_next(cd)) {
             /* no entities left in this domain we need to remove it */
@@ -248,14 +268,14 @@ DWORD WINAPI mass_ghost_child(void *arg) {
             /* check for entities outside domain interaction range limit */
             if (ct - cd->lgb > 15) {
                cd->lgb = ct;
-               printf("[child:%x:%x] doing group break..\n", args->laddr, servicePort);
+               //printf("[child:%x:%x] doing group break..\n", args->laddr, servicePort);
                mass_ghost_gb(&sock, cd->entities, args->suraddr, args->laddr, cd->dom);
             }
             
             /* check for server merge */
             if (ct - cd->lsm > 15) {
                cd->lsm = ct;
-               printf("[child:%x:%x] doing server merge check\n", args->laddr, servicePort);
+               //printf("[child:%x:%x] doing server merge check\n", args->laddr, servicePort);
 
                cd->sm_rid++;
                cd->sm_bestAddr = 0;
@@ -276,16 +296,17 @@ DWORD WINAPI mass_ghost_child(void *arg) {
 
          if (ct - lastDbgOut > 10) {
             lastDbgOut = ct;
-            for (cd = domains; cd; cd = (MASS_DOMAIN*)mass_ll_next(cd)) {
-               for (MASS_ENTITYCHAIN *ec = cd->entities; ec; ec = (MASS_ENTITYCHAIN*)mass_ll_next(ec)) {
-                  printf("[CLIENTDBG] client:%x dom:%x entity:%x ", args->laddr, cd->dom, ec->entity.entityID);
-                  printf("d:%.2f ", MASS_DISTANCE(0.0, 0.0, 0.0, ec->entity.lx, ec->entity.ly, ec->entity.lz));
-                  printf("x:%.2f y:%.2f z:%.2f\n", ec->entity.lx, ec->entity.ly, ec->entity.lz);
-               }
-            }
+            //for (cd = domains; cd; cd = (MASS_DOMAIN*)mass_ll_next(cd)) {
+            //   for (MASS_ENTITYCHAIN *ec = cd->entities; ec; ec = (MASS_ENTITYCHAIN*)mass_ll_next(ec)) {
+            //      printf("[CLIENTDBG] client:%x dom:%x entity:%x ", args->laddr, cd->dom, ec->entity.entityID);
+            //      printf("d:%.2f ", MASS_DISTANCE(0.0, 0.0, 0.0, ec->entity.lx, ec->entity.ly, ec->entity.lz));
+            //      printf("x:%.2f y:%.2f z:%.2f\n", ec->entity.lx, ec->entity.ly, ec->entity.lz);
+            //   }
+            //}
 
             printf("BytesPerSecond:%f BitsPerSecond:%f\n", mdp_byteOutAvg, mdp_byteOutAvg * 8.0);
             printf("BytesPerSecond[10]:%f BitsPerSecond[10]:%f\n", mdp_byteOutAvg10, mdp_byteOutAvg10 * 8.0);
+            printf("[%x][%x]LCP[10]:%f\n", GetCurrentThreadId, lcp10);
          }
 
          /* remove old requests that were never completed, and unlock entities */
@@ -356,7 +377,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                      }
                   }
 
-                  printf("[child:%x] SMCHECK DIS=%f\n", args->laddr, bestDis);
+                  //printf("[child:%x] SMCHECK DIS=%f\n", args->laddr, bestDis);
 
                   pktsmr.replyDom = bestDom;
                   pktsmr.maxTake = bestTake;
@@ -454,11 +475,11 @@ DWORD WINAPI mass_ghost_child(void *arg) {
          
                   pktea = (MASS_ENTITYADOPT*)pkt;
 
-                  printf("[child] MASS_ENTITYADOPT packet\n");
+                  //printf("[child] MASS_ENTITYADOPT packet\n");
 
                   /* if DOM not specified then we create a new domain and add entity */
                   if (pktea->dom == 0) {
-                     printf("[child] DOM not specified; creating new\n");
+                     //printf("[child] DOM not specified; creating new\n");
                      cd = (MASS_DOMAIN*)malloc(sizeof(MASS_DOMAIN));
                      cd->dom = mass_getnewdomid(domains);
                      cd->ecnt = 0;
@@ -468,7 +489,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                      cd->sm_rid = 100;
                      mass_ll_add((void**)&domains, cd);
                   } else {
-                     printf("[child] DOM specified; using existing\n");
+                     //printf("[child] DOM specified; using existing\n");
                      cd = mass_getdom(domains, pktea->dom);
                      /* make sure we are going to be under our max entity limit */
                      x = 0;
@@ -493,10 +514,10 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                   //malloc(sizeof(MASS_ENTITYCHAIN));
                   ec = (MASS_ENTITYCHAIN*)malloc(sizeof(MASS_ENTITYCHAIN));
                   //malloc(sizeof(MASS_ENTITYCHAIN));
-                  printf("ec:%x\n", ec);
+                  //printf("ec:%x\n", ec);
                   memcpy(&ec->entity,  &pktea->entity, sizeof(MASS_ENTITY));
                   mass_ll_add((void**)&cd->entities, ec);
-				      printf("[child] adopted entity into dom %u from dom %u\n", cd->dom, pktea->fromDom);
+				      //printf("[child] adopted entity into dom %u from dom %u\n", cd->dom, pktea->fromDom);
                   /* send accept entity so remote domain can remove entity from it's self */
                   {
                      MASS_ACCEPTENTITY       pktae;
@@ -534,7 +555,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                   for (MASS_ENTITYCHAIN *ce = cd->entities; ce != 0; ce = (MASS_ENTITYCHAIN*)mass_ll_next(ce)) {
                      if (ce->entity.entityID == _pktae->eid) {
                         mass_ll_rem((void**)&cd->entities, ce);
-                        printf("[child] entity %x removed from dom %x\n", _pktae->eid, _pktae->dom);
+                        //printf("[child] entity %x removed from dom %x\n", _pktae->eid, _pktae->dom);
                         free(ce);
                         break;
                      }
@@ -679,7 +700,6 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                } // local scope for switch
             } // switch statement
          } // packet loop
-      Sleep(10);
    } // main loop   
    
    return 0;

@@ -99,7 +99,7 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
 
          memcpy(&pktea.entity, &e->entity, sizeof(MASS_ENTITY));
          mass_net_sendto(&sock, &pktea, sizeof(pktea), MASS_GHOST_FIRST);
-         printf("[master] send adopt for %u\n", e->entity.entityID);
+         //printf("[master] send adopt for %u\n", e->entity.entityID);
       }
 
       mass_net_tick(&sock);
@@ -121,7 +121,7 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
                for (ptr = waitingEntities; ptr != 0; ptr = (MASS_WAITINGENTITY*)mass_ll_next(ptr)) {
                   if (pktae->eid == ptr->entity.entityID) {
                      // remove entity from waiting list
-                     printf("[master] removed entity %x from waiting list\n", ptr->entity.entityID);
+                     //printf("[master] removed entity %x from waiting list\n", ptr->entity.entityID);
                      mass_ll_rem((void**)&waitingEntities, ptr);
                      break;
                   }

@@ -67,6 +67,7 @@ int _mass_net_sendto(MASS_MP_SOCK *mps, void *buf, uint16 sz, uint32 addr, char 
 
 int mass_net_recvfrom(MASS_MP_SOCK *mps, void *buf, uint16 sz, uint32 *_addr) {
    MASS_MP_PKT       *pkt;
+   uint32            pktsz;
 
    EnterCriticalSection(&mutex);
 
@@ -80,11 +81,13 @@ int mass_net_recvfrom(MASS_MP_SOCK *mps, void *buf, uint16 sz, uint32 *_addr) {
    memcpy(buf, pkt->data, pkt->sz > sz ? sz : pkt->sz);
    *_addr = pkt->from;
 
+   pktsz = pkt->sz;
+
    free(pkt->data);
    free(pkt);
 
    LeaveCriticalSection(&mutex);
-   return pkt->sz > sz ? sz : pkt->sz;
+   return pktsz > sz ? sz : pktsz;
 }
 
 int mass_net_create(MASS_MP_SOCK *mps, uint32 laddr, uint32 bcaddr) {
