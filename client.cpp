@@ -1,8 +1,9 @@
 #include <stdio.h>
+#include <stdlib.h>
+#include <GL\glut.h>
 
 #include "linklist.h"
 #include "client.h"
-#include "GL\glut.h"
 
 typedef struct _MASS_UI_WIN {
    MASS_LL_HDR               llhdr;            /* link list header */
@@ -12,21 +13,51 @@ typedef struct _MASS_UI_WIN {
    uint32                    height;           /* window height */
    f32                       r, g, b;          /* window background color */
    struct _MASS_UI_WIN       *children;        /* children windows */
+   uint32                    flags;            /* flags */
 } MASS_UI_WIN;
 
 MASS_UI_WIN             *windows;
+void                    *texdata;
 
 int init() {
 
    MASS_UI_WIN       *w;
+   FILE              *fp;
+   char              cwd[1024];
+   GLuint            tex1;
+   uint32            fsz;
+
+   GetCurrentDirectoryA(1024, &cwd[0]);
+
+   fp = fopen("texture.raw", "rb");
+   fseek(fp, 0, SEEK_END);
+   fsz = ftell(fp);
+   texdata = malloc(fsz);
+   fseek(fp, 0, SEEK_SET);
+   fread(texdata, fsz, 1, fp);
+   fclose(fp);
+
+   /*
+   glGenTextures(1, &tex1);
+   glBindTexture(GL_TEXTURE_2D, tex1);
+   glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST);
+   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+   gluBuild2DMipmaps(GL_TEXTURE_2D, 3, 256, 256, GL_RGB, GL_UNSIGNED_BYTE, texdata);
+   free(texdata);
+
+   glEnable(GL_TEXTURE_2D);
+   */
 
    w = (MASS_UI_WIN*)malloc(sizeof(MASS_UI_WIN) * 4);
 
    memset(w, 0, sizeof(MASS_UI_WIN) * 4);
 
    w[0].r = 1.0;
-   w[0].g = 0.0;
-   w[0].b = 0.0;
+   w[0].g = 1.0;
+   w[0].b = 1.0;
    w[0].height = 290;
    w[0].width = 290;
    w[0].top = 0;
@@ -46,7 +77,64 @@ int init() {
    return 1;
 }
 
-void drawUI(MASS_UI_WIN *windows, f64 gx, f64 gy, f64 gw, f64 gh, f64 fpw, f64 fph) {
+/*
+   Any window with this flag set will not allow clicks to progress
+   any further causing mass_ui_click to return this window. 
+
+   A good example is when you are a button and have multiple child
+   windows which may be showing text and/or a graphic and you do not
+   want to write click handling code for each of these in the event
+   they are clicked which will be highly possible. So essentially
+   this flag aids the programming writing code for this window system.
+*/
+#define MASS_UI_NOPASSCLICK            0x01
+
+/*
+   This will iterate though the windows and into their children finding ultimately
+   which window was clicked.
+*/
+int mass_ui_click(MASS_UI_WIN *windows, int x, int y, MASS_UI_WIN **clicked) {
+   *clicked = 0;
+   for (MASS_UI_WIN *cw = windows; cw; cw = (MASS_UI_WIN*)mass_ll_next(cw)) {
+      if (((cw->left) < x) && (x < (cw->left + cw->width)))
+         if (((cw->top) < y) && (y < (cw->top + cw->height))) {
+            /* click landed on this window and no children or nopassclick */
+            if (!cw->children || (cw->flags & MASS_UI_NOPASSCLICK)) {
+               *clicked = cw;
+               return 1;
+            }
+            /* 
+               go deeper and determine where the click landed; i set the pointer
+               here because
+            */
+            switch (mass_ui_click(cw->children, x - cw->left, y - cw->top, clicked)) {
+               case 1:
+                  /* rapid exit; clicked has been set; and we need to unwind the call stack */
+                  return 1;
+               case 0:
+                  /* no children were clicked on; set clicked; do rapid exit */
+                  *clicked = cw;
+                  return 1;
+            }
+         }
+   }
+   return 0;
+}
+
+void mouse(int button, int state, int x, int y) {
+   MASS_UI_WIN       *clicked;
+
+   printf("button:%i state:%i x:%i y:%i\n", button, state, x, y);
+   mass_ui_click(windows, x, y, &clicked);
+
+   if (clicked) {
+      clicked->r = RANDFP();
+      clicked->g = RANDFP();
+      clicked->b = RANDFP();
+   }
+}
+
+void mass_ui_draw(MASS_UI_WIN *windows, f64 gx, f64 gy, f64 gw, f64 gh, f64 fpw, f64 fph) {
    f64         ax, ay, aw, ah;
 
    /* draw the windows in order of link list */
@@ -73,13 +161,17 @@ void drawUI(MASS_UI_WIN *windows, f64 gx, f64 gy, f64 gw, f64 gh, f64 fpw, f64 f
 
       /* draw the actual window */
       glBegin(GL_QUADS);
+      glTexCoord2d(0.0, 0.0);
       glVertex2d(ax, -ay);
+      glTexCoord2d(1.0, 0.0);
       glVertex2d(aw, -ay);
+      glTexCoord2d(1.0, 1.0);
       glVertex2d(aw, -ah);
+      glTexCoord2d(0.0, 1.0);
       glVertex2d(ax, -ah);
       glEnd();
 
-      drawUI(cw->children, ax, ay, aw, ah, fpw, fph);
+      mass_ui_draw(cw->children, ax, ay, aw, ah, fpw, fph);
    }
 }
 
@@ -101,7 +193,7 @@ void display() {
 
    gluOrtho2D(0.0, 0.0, w, h);
 
-   drawUI(windows, -1.0, -1.0, 1.0, 1.0, 2.0 / w, 2.0 / h);
+   mass_ui_draw(windows, -1.0, -1.0, 1.0, 1.0, 2.0 / w, 2.0 / h);
 
    glutSwapBuffers();
 }
@@ -112,9 +204,6 @@ void idle() {
 
 void keyboard(unsigned char key, int x, int y) {
    printf("key:%c x:%i y:%i\n", key, x, y);
-}
-
-void mouse(int button, int state, int x, int y) {
 }
 
 DWORD WINAPI mass_client_entry(void *arg) {
