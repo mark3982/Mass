@@ -61,7 +61,7 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
    pktmcc.count = 0;
 
    // make some random entities
-   for (int x = 0; x < 100; ++x) {
+   for (int x = 0; x < 1000; ++x) {
       MASS_WAITINGENTITY      *we;
       
       we = (MASS_WAITINGENTITY*)malloc(sizeof(MASS_WAITINGENTITY));
