@@ -123,6 +123,7 @@ DWORD WINAPI mass_master_entry(LPVOID arg) {
                      // remove entity from waiting list
                      //printf("[master] removed entity %x from waiting list\n", ptr->entity.entityID);
                      mass_ll_rem((void**)&waitingEntities, ptr);
+                     free(ptr);
                      break;
                   }
                }

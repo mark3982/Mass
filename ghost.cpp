@@ -317,6 +317,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
          for (MASS_EACREQC *c = eacreqc; c != 0; c = (MASS_EACREQC*)mass_ll_next(c)) {
             if (ct - c->startTime > 30) {
                mass_ll_rem((void**)&eacreqc, c);
+               free(c);
                // TODO: unlock entity
                printf("[child] TODO: UNLOCK ENTITIES!! LOL!!\n");
                break;
@@ -627,6 +628,7 @@ DWORD WINAPI mass_ghost_child(void *arg) {
                   if (c->replyCnt <= 0) {
                      // we now have all the replies
                      mass_ll_rem((void**)&eacreqc, c);
+                     free(c);
                      
                      dom = mass_getdom(domains, pkteca2r->askingServiceDom);
                      
