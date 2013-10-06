@@ -6,4 +6,6 @@
 typedef struct _MASS_AUTH_ARGS {
    uint8          blank;
 } MASS_AUTH_ARGS;
+
+DWORD WINAPI mass_auth_entry(void *ptr);
 #endif

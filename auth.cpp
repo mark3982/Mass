@@ -1,13 +1,55 @@
 #include "auth.h"
 #include "mp.h"
+#include "linklist.h"
+#include "stdio.h"
 
-void mass_auth_entry(void *ptr) {
+typedef struct _MASS_AUTH_CLIENT {
+   struct _MASS_AUTH_CLIENT   *next;
+   struct _MASS_AUTH_CLIENT   *prev;
+   SOCKET                     sock;
+} MASS_AUTH_CLIENT;
+
+DWORD WINAPI mass_auth_entry(void *ptr) {
    MASS_AUTH_ARGS          *args;
-   MASS_MP_SOCK            sock;
+   MASS_MP_SOCK            isock;
+
+   sockaddr_in             saddr;
+   SOCKET                  nsock;
+   SOCKET                  osock;
+   int                     err;
+   u_long                  ulval;
+   int                     ival;
+   MASS_AUTH_CLIENT        *clients;
+   MASS_AUTH_CLIENT        *client;
 
    args = (MASS_AUTH_ARGS*)ptr;
 
    // open remote side tcp port for connections
+   osock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+   memset(&saddr, 0, sizeof(saddr));
+   saddr.sin_addr.S_un.S_addr = inet_addr("127.0.0.1");
+   saddr.sin_family = AF_INET;
+   saddr.sin_port = htons(24000);
+   err = bind(osock, (sockaddr*)&saddr, sizeof(saddr));
+
+   ulval = 1;
+   ioctlsocket(osock, FIONBIO, &ulval);
+
+   listen(osock, 100);
+
+   clients = 0;
+
+   while (1) {
+      ival = sizeof(saddr);
+      nsock = accept(osock, (sockaddr*)&saddr, &ival); 
+      if (nsock) {
+         client = (MASS_AUTH_CLIENT*)malloc(sizeof(saddr));
+         client->sock = nsock;
+         mass_ll_add((void**)&clients, client);
+         printf("[auth] new client\n");
+      }
+   }
 
    // loop
       // any new connections? if so accept them

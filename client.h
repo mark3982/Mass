@@ -2,5 +2,10 @@
 #define _MASS_CLIENT_H
 #include "core.h"
 
-void mass_client_entry(void *arg);
+typedef struct _MASS_CLIENT_ARGS {
+   int         argc;
+   char        **argv;
+} MASS_CLIENT_ARGS;
+
+DWORD WINAPI mass_client_entry(void *arg);
 #endif

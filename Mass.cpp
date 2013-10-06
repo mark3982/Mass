@@ -13,6 +13,8 @@
 #include "ghost.h"
 #include "master.h"
 #include "mp.h"
+#include "auth.h"
+#include "client.h"
 
 #define SPACECHUNKSZ       256
 
@@ -107,11 +109,6 @@ typedef struct _MASS_ENDPOINT {
 typedef uint32 MASS_CC_ADDR;
 typedef uint16 MASS_CC_PORT;
 
-
-DWORD WINAPI mass_client_entry(void *arg) {
-   return 0;
-}
-
 // packet stream packet
 typedef struct _MASS_PSP {
    struct _MASS_PSP     *next;
@@ -149,10 +146,10 @@ typedef struct _MASS_CC {
 } MASS_CC;
 
 /*
-   provides the bridge between the client to the game servers and geo servers through
-   a single pipe
+   Old code. I left it as a reference to INET TCP incase
+   I had trouble or forgot how to do something.
 */
-DWORD WINAPI mass_auth_entry(void *arg) {
+DWORD WINAPI xxxmass_auth_entry(void *arg) {
 
    if (1) {
       return 0;
@@ -244,6 +241,17 @@ int _tmain(int argc, _TCHAR* argv[])
       return 0;
    */
 
+   MASS_CLIENT_ARGS     clargs;
+
+   clargs.argc = argc;
+   clargs.argv = (char**)argv;
+
+   CreateThread(NULL, 0, mass_client_entry, &clargs, 0, NULL);
+
+   for(;;) {
+      Sleep(1000);
+   }
+
    //CreateThread(NULL, 0, mass_auth_entry, 0, 0, NULL);
    //CreateThread(NULL, 0, mass_geo_entry, 0, 0, NULL);
    masterargs.laddr = MASS_MASTER_ADDR;
@@ -264,6 +272,13 @@ int _tmain(int argc, _TCHAR* argv[])
    childargs[1].naddr = 0;
    childargs[1].suraddr = MASS_MASTER_ADDR;
    CreateThread(NULL, 0, mass_ghost_child, &childargs[1], 0, NULL);
+
+   printf("[mass] waiting for children to register..\n");
+   Sleep(1000);
+
+   MASS_AUTH_ARGS       authArgs;
+
+   CreateThread(NULL, 0, mass_auth_entry, &authArgs, 0, NULL);
 
    for(;;) {
       Sleep(1000);
