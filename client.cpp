@@ -5,17 +5,6 @@
 #include "linklist.h"
 #include "client.h"
 
-typedef struct _MASS_UI_WIN {
-   MASS_LL_HDR               llhdr;            /* link list header */
-   uint32                    top;              /* top (y) corner */
-   uint32                    left;             /* left (x) corner */
-   uint32                    width;            /* window width */
-   uint32                    height;           /* window height */
-   f32                       r, g, b;          /* window background color */
-   struct _MASS_UI_WIN       *children;        /* children windows */
-   uint32                    flags;            /* flags */
-} MASS_UI_WIN;
-
 MASS_UI_WIN             *windows;
 void                    *texdata;
 
@@ -23,12 +12,13 @@ int init() {
 
    MASS_UI_WIN       *w;
    FILE              *fp;
-   char              cwd[1024];
+   //char              cwd[1024];
    GLuint            tex1;
    uint32            fsz;
 
-   GetCurrentDirectoryA(1024, &cwd[0]);
+   //GetCurrentDirectoryA(1024, &cwd[0]);
 
+   /*
    fp = fopen("texture.raw", "rb");
    fseek(fp, 0, SEEK_END);
    fsz = ftell(fp);
@@ -37,7 +27,7 @@ int init() {
    fread(texdata, fsz, 1, fp);
    fclose(fp);
 
-   /*
+   
    glGenTextures(1, &tex1);
    glBindTexture(GL_TEXTURE_2D, tex1);
    glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
@@ -69,7 +59,7 @@ int init() {
    w[1].g = 1.0;
    w[1].b = 0.0;
    w[1].height = 100;
-   w[1].width = 300;
+   w[1].width = 170;
    w[1].top = 10;
    w[1].left = 10;
 
@@ -93,13 +83,17 @@ int init() {
    This will iterate though the windows and into their children finding ultimately
    which window was clicked.
 */
-int mass_ui_click(MASS_UI_WIN *windows, int x, int y, MASS_UI_WIN **clicked) {
+int mass_ui_click(MASS_UI_WIN *windows, uint32 x, uint32 y, MASS_UI_WIN **clicked, uint32 *lx, uint32 *ly) {
    *clicked = 0;
+   *lx = 0;
+   *ly = 0;
    for (MASS_UI_WIN *cw = windows; cw; cw = (MASS_UI_WIN*)mass_ll_next(cw)) {
       if (((cw->left) < x) && (x < (cw->left + cw->width)))
          if (((cw->top) < y) && (y < (cw->top + cw->height))) {
             /* click landed on this window and no children or nopassclick */
             if (!cw->children || (cw->flags & MASS_UI_NOPASSCLICK)) {
+               *lx = x;
+               *ly = y;
                *clicked = cw;
                return 1;
             }
@@ -107,12 +101,14 @@ int mass_ui_click(MASS_UI_WIN *windows, int x, int y, MASS_UI_WIN **clicked) {
                go deeper and determine where the click landed; i set the pointer
                here because
             */
-            switch (mass_ui_click(cw->children, x - cw->left, y - cw->top, clicked)) {
+            switch (mass_ui_click(cw->children, x - cw->left, y - cw->top, clicked, lx, ly)) {
                case 1:
                   /* rapid exit; clicked has been set; and we need to unwind the call stack */
                   return 1;
                case 0:
                   /* no children were clicked on; set clicked; do rapid exit */
+                  *lx = x;
+                  *ly = y;
                   *clicked = cw;
                   return 1;
             }
@@ -123,9 +119,10 @@ int mass_ui_click(MASS_UI_WIN *windows, int x, int y, MASS_UI_WIN **clicked) {
 
 void mouse(int button, int state, int x, int y) {
    MASS_UI_WIN       *clicked;
+   uint32            lx, ly;
 
    printf("button:%i state:%i x:%i y:%i\n", button, state, x, y);
-   mass_ui_click(windows, x, y, &clicked);
+   mass_ui_click(windows, x, y, &clicked, &lx, &ly);
 
    if (clicked) {
       clicked->r = RANDFP();
@@ -170,6 +167,17 @@ void mass_ui_draw(MASS_UI_WIN *windows, f64 gx, f64 gy, f64 gw, f64 gh, f64 fpw,
       glTexCoord2d(0.0, 1.0);
       glVertex2d(ax, -ah);
       glEnd();
+
+
+      glColor3f(cw->g * RANDFP(), cw->b * RANDFP(), cw->r * RANDFP());
+      // TODO
+      // ALERT
+      // do something with fph to adjust it from 8 to actual -1 to 1 coordinates and use floats/doubles
+      glRasterPos2d(ax, -ay - 8.0 * fph);
+
+      for (int i = 0; i < cw->width - 8; i += 8) {
+         glutBitmapCharacter(GLUT_BITMAP_8_BY_13, 'A');
+      }
 
       mass_ui_draw(cw->children, ax, ay, aw, ah, fpw, fph);
    }
