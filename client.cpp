@@ -70,10 +70,20 @@ GLuint mass_ui_texman_diskload(uint8 *path) {
    return nref;
 }
 
+/*
+   The default callback handler.
+*/
 void defcb(MASS_UI_WIN *win, uint32 evtype, void *ev) {
    MASS_UI_EVTINPUT        *evi;
+   MASS_UI_DRAG            *evd;
 
    switch (evtype) {
+      case MASS_UI_TY_EVTDRAG:
+         evd = (MASS_UI_DRAG*)ev;
+         printf("drag from:%x to:%x", evd->from, evd->to);
+         printf("lx:%u ly:%u", evd->lx, evd->ly);
+         printf("dx:%i dy:%i\n", evd->dx, evd->dy);
+         break;
       case MASS_UI_TY_EVTINPUT:
          evi = (MASS_UI_EVTINPUT*)ev;
          printf("key:%u pushed:%u x:%u y:%u\n", evi->key, evi->pushed, evi->ptrx, evi->ptry);
@@ -181,13 +191,53 @@ int mass_ui_click(MASS_UI_WIN *windows, uint32 x, uint32 y, MASS_UI_WIN **clicke
 }
 
 void mouse(int button, int state, int x, int y) {
-   MASS_UI_WIN       *clicked;
-   uint32            lx, ly;
-   MASS_UI_EVTINPUT  evt;
-   uint8             key;
+   MASS_UI_WIN          *clicked;
+   uint32               lx, ly;
+   MASS_UI_EVTINPUT     evt;
+   uint8                key;
+   f64                  delta;
+   MASS_UI_DRAG         devt;
+
+   /* feels terrible.. but.. it works */
+   static MASS_UI_WIN   *lastClicked = 0;
+   static uint32        lastX = 0, lastY = 0;
+
+   /* it comes in backwards */
+   state = !state;
 
    //printf("button:%i state:%i x:%i y:%i\n", button, state, x, y);
    mass_ui_click(windows, x, y, &clicked, &lx, &ly);
+
+   /* if button is released (telling it is it was previously pushed)
+      also check if lastClicked is valid and check that the cb has
+      been set to a hopefully valid address
+   */
+   if (state == 0 && lastClicked && clicked->cb) {
+      delta = sqrt(pow((f64)lastX - (f64)x, 2.0) + pow((f64)lastY - (f64)y, 2.0));
+      if (delta > 3.0) {
+         devt.from = lastClicked;
+         devt.to = clicked;
+         devt.lx = lastX;
+         devt.ly = lastY;
+         devt.dx = x - lastX;
+         devt.dy = y - lastY;
+         clicked->cb(lastClicked, MASS_UI_TY_EVTDRAG, &devt);
+      } 
+   }
+
+   /* we only need to set on a push/press */
+   if (state == 1) {
+      lastClicked = clicked;
+      lastX = x;
+      lastY = y;
+   }
+   /* 
+      (talking about above code blocks)
+      we also need to do this before the next condition 
+      because a drag could end up on the screen and no
+      window, so.. see below.
+   */
+
 
    /* if no window clicked just exit */
    if (!clicked)
@@ -207,7 +257,8 @@ void mouse(int button, int state, int x, int y) {
       }
 
       evt.key = key;
-      evt.pushed = state;
+      /* state is inverted; 0 = pushed and 1 = released which is backwards */
+      evt.pushed = state; /* correct state 0 == released and 1 == pushed */
       evt.ptrx = x;
       evt.ptry = y;
 
