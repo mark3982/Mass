@@ -5,8 +5,7 @@
 #include "core.h"
 
 typedef struct _MASS_RDP_PKT {
-   struct _MASS_RDP_PKT    *next;
-   struct _MASS_RDP_PKT    *prev;
+   MASS_LL_HDR             llhdr;
    uint32                  addr;             // address sent to
    uint16                  port;             // port sent to
    void                    *data;            // pointer to data

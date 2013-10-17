@@ -19,8 +19,7 @@ typedef struct _MASS_GHOSTCHILD_ARGS {
 */
 typedef struct _MASS_EACREQC {                // Entity Adopt Check Request Container/Chain
    // TODO: make a link list header structure to contain these fields (for all structures)
-   struct _MASS_EACREQC *next;                // link list field
-   struct _MASS_EACREQC *prev;                // link list field
+   MASS_LL_HDR          llhdr;
    uint32               replyCnt;             // decremented to zero for each reply
                                               // (at zero results are evaluated)
    uint32               startTime;            // time that waiting started (used for timeout)
@@ -33,8 +32,7 @@ typedef struct _MASS_EACREQC {                // Entity Adopt Check Request Cont
 } MASS_EACREQC;
 
 typedef struct _MASS_DOMAIN {
-   struct _MASS_DOMAIN     *next;          /* next domain in chain (can be zero) */
-   struct _MASS_DOMAIN     *prev;
+   MASS_LL_HDR             llhdr;
    uint16                  dom;            /* our domain id */
    MASS_ENTITYCHAIN        *entities;      /* all of our entities */
    uint32                  lgb;            /* tick timer */

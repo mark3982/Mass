@@ -111,8 +111,7 @@ typedef uint16 MASS_CC_PORT;
 
 // packet stream packet
 typedef struct _MASS_PSP {
-   struct _MASS_PSP     *next;
-   struct _MASS_PSP     *prev;
+   MASS_LL_HDR          llhdr;
    void                 *data;
    uint16               sz;
 } MASS_PSP;

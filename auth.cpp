@@ -4,8 +4,7 @@
 #include "stdio.h"
 
 typedef struct _MASS_AUTH_CLIENT {
-   struct _MASS_AUTH_CLIENT   *next;
-   struct _MASS_AUTH_CLIENT   *prev;
+   MASS_LL_HDR                llhdr;
    SOCKET                     sock;
 } MASS_AUTH_CLIENT;
 

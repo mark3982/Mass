@@ -2,13 +2,14 @@
 #define ________NOTHING
 #ifndef _MASS_LINKLIST_H
 #define _MASS_LINKLIST_H
-#include "core.h"
 
 typedef struct _MASS_LL_HDR {
    void           *next;
    void           *prev;
 } MASS_LL_HDR;
 
+void *mass_ll_prev(void *ptr);
+void *mass_ll_last(void *chain);
 void mass_ll_rem(void **chain, void *torem);
 void mass_ll_add(void **chain, void *toadd);
 void *mass_ll_next(void *ptr);

@@ -21,7 +21,7 @@ void mass_net_init() {
 
    time(&ct);
 
-   startTime = ct;
+   startTime = (uint32)ct;
 }
 
 int _mass_net_sendto(MASS_MP_SOCK *mps, void *buf, uint16 sz, uint32 addr, char *file, char *func, int line, uint8 sts) {
@@ -39,7 +39,7 @@ int _mass_net_sendto(MASS_MP_SOCK *mps, void *buf, uint16 sz, uint32 addr, char 
       mdp_byteOutAvg = (f64)byteOutTotal / (ct - startTime);
       mdp_byteOutAvg10 = (f64)byteOutTotal10 / 10.0;
       byteOutTotal10 = 0;
-      lastCheck = ct;
+      lastCheck = (uint32)ct;
    }
 
    for (MASS_MP_SOCK *cs = sockchain; cs != 0; cs = (MASS_MP_SOCK*)mass_ll_next(cs)) {
@@ -93,8 +93,6 @@ int mass_net_recvfrom(MASS_MP_SOCK *mps, void *buf, uint16 sz, uint32 *_addr) {
 int mass_net_create(MASS_MP_SOCK *mps, uint32 laddr, uint32 bcaddr) {
    mps->addr = laddr;
    mps->in = 0;
-   mps->next = 0;
-   mps->prev = 0;
    mps->bcaddr = bcaddr;
 
    EnterCriticalSection(&mutex);

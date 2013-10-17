@@ -1,6 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <lua.h>
+#include <lualib.h>
+#include <lauxlib.h>
 
 #include "linklist.h"
 #include "client.h"
@@ -52,15 +55,16 @@ GLuint mass_ui_texman_diskload(uint8 *path) {
    fclose(fp);
 
    /* i only produce raw images squared (256x256,512x512,..etc) and 32-bit pixel color in RGBA format */
-   dim = sqrt((f64)fsz / 4.0);
+   dim = (uint32)sqrt((f64)fsz / 4.0);
 
    glGenTextures(1, &nref);
    glBindTexture(GL_TEXTURE_2D, nref);
    glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST);
    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+   // GL_REPEAT
+   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
    gluBuild2DMipmaps(GL_TEXTURE_2D, 4, dim, dim, GL_RGBA, GL_UNSIGNED_BYTE, texdata);
    free(texdata);
 
@@ -73,7 +77,7 @@ GLuint mass_ui_texman_diskload(uint8 *path) {
 /*
    The default callback handler.
 */
-void defcb(MASS_UI_WIN *win, uint32 evtype, void *ev) {
+static void defcb(MASS_UI_WIN *win, uint32 evtype, void *ev) {
    MASS_UI_EVTINPUT        *evi;
    MASS_UI_DRAG            *evd;
 
@@ -83,28 +87,27 @@ void defcb(MASS_UI_WIN *win, uint32 evtype, void *ev) {
          printf("drag from:%x to:%x", evd->from, evd->to);
          printf("lx:%u ly:%u", evd->lx, evd->ly);
          printf("dx:%i dy:%i\n", evd->dx, evd->dy);
+         win->left += evd->dx;
+         win->top += evd->dy;
          break;
       case MASS_UI_TY_EVTINPUT:
          evi = (MASS_UI_EVTINPUT*)ev;
          printf("key:%u pushed:%u x:%u y:%u\n", evi->key, evi->pushed, evi->ptrx, evi->ptry);
-         win->r = RANDFP();
-         win->g = RANDFP();
-         win->b = RANDFP();
-         win->tr = RANDFP();
-         win->tg = RANDFP();
-         win->tb = RANDFP();
+         //win->r = (f32)RANDFP();
+         //win->g = (f32)RANDFP();
+         //win->b = (f32)RANDFP();
+         //win->tr = (f32)RANDFP();
+         //win->tg = (f32)RANDFP();
+         //win->tb = (f32)RANDFP();
          break;
    }
 }
 
-int init() {
+static int init() {
 
    MASS_UI_WIN       *w;
-   FILE              *fp;
-   //char              cwd[1024];
-   GLuint            tex1;
-   uint32            fsz;
 
+   //char              cwd[1024];
    //GetCurrentDirectoryA(1024, &cwd[0]);
 
    w = (MASS_UI_WIN*)malloc(sizeof(MASS_UI_WIN) * 4);
@@ -114,8 +117,8 @@ int init() {
    w[0].r = 1.0;
    w[0].g = 1.0;
    w[0].b = 1.0;
-   w[0].height = 290;
-   w[0].width = 290;
+   w[0].height = 300;
+   w[0].width = 300;
    w[0].top = 0;
    w[0].left = 0;
    w[0].text = (uint16*)L"hello world";
@@ -134,9 +137,10 @@ int init() {
    w[1].width = 170;
    w[1].top = 10;
    w[1].left = 10;
+   w[1].cb = defcb;
    w[1].text = (uint16*)L"small window";
 
-   mass_ll_add((void**)&w[0].children, &w[1]);
+   //mass_ll_add((void**)&w[0].children, &w[1]);
    return 1;
 }
 
@@ -156,11 +160,13 @@ int init() {
    This will iterate though the windows and into their children finding ultimately
    which window was clicked.
 */
-int mass_ui_click(MASS_UI_WIN *windows, uint32 x, uint32 y, MASS_UI_WIN **clicked, uint32 *lx, uint32 *ly) {
+static int mass_ui_click(MASS_UI_WIN *windows, int32 x, int32 y, MASS_UI_WIN **clicked, uint32 *lx, uint32 *ly) {
    *clicked = 0;
    *lx = 0;
    *ly = 0;
-   for (MASS_UI_WIN *cw = windows; cw; cw = (MASS_UI_WIN*)mass_ll_next(cw)) {
+   
+   for (MASS_UI_WIN *cw = (MASS_UI_WIN*)mass_ll_last(windows); cw; cw = (MASS_UI_WIN*)mass_ll_prev(cw)) {
+   //for (MASS_UI_WIN *cw = windows; cw; cw = (MASS_UI_WIN*)mass_ll_next(cw)) {
       if (((cw->left) < x) && (x < (cw->left + cw->width)))
          if (((cw->top) < y) && (y < (cw->top + cw->height))) {
             /* click landed on this window and no children or nopassclick */
@@ -190,7 +196,8 @@ int mass_ui_click(MASS_UI_WIN *windows, uint32 x, uint32 y, MASS_UI_WIN **clicke
    return 0;
 }
 
-void mouse(int button, int state, int x, int y) {
+/* actual function handling mouse */
+static void _mouse(int button, int state, int x, int y) {
    MASS_UI_WIN          *clicked;
    uint32               lx, ly;
    MASS_UI_EVTINPUT     evt;
@@ -201,6 +208,7 @@ void mouse(int button, int state, int x, int y) {
    /* feels terrible.. but.. it works */
    static MASS_UI_WIN   *lastClicked = 0;
    static uint32        lastX = 0, lastY = 0;
+   static uint32        buttons = 0;
 
    /* it comes in backwards */
    state = !state;
@@ -212,16 +220,17 @@ void mouse(int button, int state, int x, int y) {
       also check if lastClicked is valid and check that the cb has
       been set to a hopefully valid address
    */
-   if (state == 0 && lastClicked && clicked->cb) {
+   if (state == 0 && lastClicked && lastClicked->cb) {
       delta = sqrt(pow((f64)lastX - (f64)x, 2.0) + pow((f64)lastY - (f64)y, 2.0));
       if (delta > 3.0) {
+         devt.key = button;
          devt.from = lastClicked;
          devt.to = clicked;
          devt.lx = lastX;
          devt.ly = lastY;
          devt.dx = x - lastX;
          devt.dy = y - lastY;
-         clicked->cb(lastClicked, MASS_UI_TY_EVTDRAG, &devt);
+         lastClicked->cb(lastClicked, MASS_UI_TY_EVTDRAG, &devt);
       } 
    }
 
@@ -244,8 +253,9 @@ void mouse(int button, int state, int x, int y) {
       return;
 
    if (clicked->cb) {
+      printf("mouse button:%u\n", button);
       switch (button) {
-         case 0:
+         case 1:
             key = MASS_UI_IN_A;
             break;
          case 2:
@@ -253,6 +263,7 @@ void mouse(int button, int state, int x, int y) {
             break;
          /* if the button is unknown then just ignore it */
          default:
+            printf("unknown button ignored\n");
             return;
       }
 
@@ -266,8 +277,25 @@ void mouse(int button, int state, int x, int y) {
    }
 }
 
-void mass_ui_draw(MASS_UI_WIN *windows, f64 gx, f64 gy, f64 gw, f64 gh, f64 fpw, f64 fph) {
+/* function called by GLUT */
+static void mouse(int button, int state, int x, int y) {
+   /* we need to map the buttons to another configuration like a controller */
+   switch (button) {
+      case 0:
+         _mouse(MASS_UI_IN_A, state, x, y);
+         break;
+      case 2:
+         _mouse(MASS_UI_IN_B, state, x, y);
+         break;
+      /* if the button is unknown then just ignore it */
+      default:
+         return;
+   }
+}
+
+static void mass_ui_draw(MASS_UI_WIN *windows, f64 gx, f64 gy, f64 gw, f64 gh, f64 fpw, f64 fph) {
    f64         ax, ay, aw, ah;
+   f64         cgw, cgh;        /* changed width and height */
 
    /* draw the windows in order of link list */
    for (MASS_UI_WIN *cw = windows; cw; cw = (MASS_UI_WIN*)mass_ll_next(cw)) {
@@ -285,11 +313,23 @@ void mass_ui_draw(MASS_UI_WIN *windows, f64 gx, f64 gy, f64 gw, f64 gh, f64 fpw,
       if (ay > gh)
          continue;
 
-      /* if it extends outside of parent only draw that which reaches */
-      if (aw > gw)
+      /* if it extends outside of parent then clip it (but keep in mind clipping textures) */
+      cgw = 1.0; /* default */
+      if (aw > gw) {
+         cgw = ((aw - gw) / fpw) / cw->width;
+         cgw = 1.0 - cgw;
+         //cgw = 1.0 - (aw - gw);  /* get pixel width delta */
          aw = gw;
-      if (ah > gh)
+         //cgw = cgw * .99;
+      }
+
+      cgh = 1.0; /* default */
+      if (ah > gh) { 
+         cgh = ((ah - gh) / fph) / cw->height;
+         cgh = 1.0 - cgh;
          ah = gh;
+         //cgh = cgh * .99;
+      }
 
       if (cw->bgimgpath) {
          /* if it can not load it the GLuint should be 0 */
@@ -301,13 +341,13 @@ void mass_ui_draw(MASS_UI_WIN *windows, f64 gx, f64 gy, f64 gw, f64 gh, f64 fpw,
 
       /* draw the actual window */
       glBegin(GL_QUADS);
-      glTexCoord2d(0.0, 0.0);   // 0, 1
+      glTexCoord2d(0.0, 0.0);   // 0, 0
       glVertex2d(ax, -ay);
-      glTexCoord2d(1.0, 0.0);   // 1, 1
+      glTexCoord2d(cgw, 0.0);   // 1, 0
       glVertex2d(aw, -ay);
-      glTexCoord2d(1.0, 1.0);   // 1, 0
+      glTexCoord2d(cgw, cgh);   // 1, 1
       glVertex2d(aw, -ah);
-      glTexCoord2d(0.0, 1.0);   // 0, 0
+      glTexCoord2d(0.0, cgh);   // 0, 1
       glVertex2d(ax, -ah);
       glEnd();
 
@@ -315,7 +355,7 @@ void mass_ui_draw(MASS_UI_WIN *windows, f64 gx, f64 gy, f64 gw, f64 gh, f64 fpw,
       glColor3f(cw->tr, cw->tg, cw->tb);
       glRasterPos2d(ax, -ay - 8.0 * fph);
 
-      for (int i = 0, x = 0; cw->text[x] != 0 && i < cw->width - 8; ++x, i += 8) {
+      for (int32 i = 0, x = 0; cw->text[x] != 0 && i < cw->width - 8; ++x, i += 8) {
          glutBitmapCharacter(GLUT_BITMAP_8_BY_13, cw->text[x]);
       }
 
@@ -323,11 +363,13 @@ void mass_ui_draw(MASS_UI_WIN *windows, f64 gx, f64 gy, f64 gw, f64 gh, f64 fpw,
    }
 }
 
-void display() {
+static void display() {
    int         w, h;
 
    w = glutGet(GLUT_WINDOW_WIDTH);
    h = glutGet(GLUT_WINDOW_HEIGHT);
+
+   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); 
 
    gluPerspective(0.5, 1.0, 0.1, 1000.0);
 
@@ -341,17 +383,123 @@ void display() {
 
    gluOrtho2D(0.0, 0.0, w, h);
 
-   mass_ui_draw(windows, -1.0, -1.0, 1.0, 1.0, 2.0 / w, 2.0 / h);
+   mass_ui_draw(windows, -1.0, -1.0, 0.8, 0.8, 2.0 / w, 2.0 / h);
 
    glutSwapBuffers();
 }
 
-void idle() {
+static void idle() {
    glutPostRedisplay();
 }
 
-void keyboard(unsigned char key, int x, int y) {
-   printf("key:%c x:%i y:%i\n", key, x, y);
+/*
+   This is the keymap of the keyboard and the
+   XBox controller. It could be any controller
+   even a PS3 one.
+*/
+static uint16 mass_ui_whatbtn(unsigned char key) {
+   switch (key) {
+      case 'x': return MASS_UI_IN_X; 
+      case 'y': return MASS_UI_IN_Y;
+      case 'k': return MASS_UI_IN_LS;
+      case 'l': return MASS_UI_IN_RS;
+      case 'm': return MASS_UI_IN_LB;
+      case ',': return MASS_UI_IN_RB;
+      case 'o': return MASS_UI_IN_LT;
+      case 'p': return MASS_UI_IN_RT;
+      default: return 0;
+   }
+}
+
+static void keyboardup(unsigned char key, int x, int y) {
+   _mouse(mass_ui_whatbtn(key), 0, x, y);
+}
+static void keyboard(unsigned char key, int x, int y) {
+   _mouse(mass_ui_whatbtn(key), 1, x, y);
+}
+
+static int mass_lua_winset_fgcolor(lua_State *lua) {
+   MASS_UI_WIN    *win;
+
+   win = (MASS_UI_WIN*)lua_touserdata(lua, 1);
+
+   win->tr = (f32)lua_tonumber(lua, 2);
+   win->tg = (f32)lua_tonumber(lua, 3);
+   win->tb = (f32)lua_tonumber(lua, 4);
+
+   return 0;
+}
+
+static int mass_lua_winset_width(lua_State *lua) {
+   MASS_UI_WIN    *win;
+
+   win = (MASS_UI_WIN*)lua_touserdata(lua, 1);
+
+   win->width = (int32)lua_tonumber(lua, 2);
+
+   return 0;
+}
+
+static int mass_lua_winset_height(lua_State *lua) {
+   MASS_UI_WIN    *win;
+
+   win = (MASS_UI_WIN*)lua_touserdata(lua, 1);
+
+   win->height = (int32)lua_tonumber(lua, 2);
+
+   return 0;
+}
+
+static int mass_lua_winset_bgcolor(lua_State *lua) {
+   MASS_UI_WIN    *win;
+
+   win = (MASS_UI_WIN*)lua_touserdata(lua, 1);
+
+   win->r = (f32)lua_tonumber(lua, 2);
+   win->g = (f32)lua_tonumber(lua, 3);
+   win->b = (f32)lua_tonumber(lua, 4);
+
+   return 0;
+}
+
+static int mass_lua_winset_text(lua_State *lua) {
+   MASS_UI_WIN    *win;
+
+   win = (MASS_UI_WIN*)lua_touserdata(lua, 1);
+
+   
+   win->text = (uint16*)lua_tostring(lua, 2);
+
+   return 0;
+}
+
+static int mass_lua_createwindow(lua_State *lua) {
+   MASS_UI_WIN    *win;
+
+   win = (MASS_UI_WIN*)malloc(sizeof(MASS_UI_WIN));
+   memset(win, 0, sizeof(MASS_UI_WIN));
+
+   win->cb = defcb;
+
+   mass_ll_addLast((void**)&windows, win);
+
+   lua_pushlightuserdata(lua, win);
+   return 1;
+}
+
+/*
+   global Lua function as 'mass_scrdim'.
+*/
+static int mass_lua_scrdim(lua_State *lua) {
+   int      w;
+   int      h;
+
+   w = glutGet(GLUT_WINDOW_WIDTH);
+   h = glutGet(GLUT_WINDOW_HEIGHT);
+   
+   lua_pushnumber(lua, w);
+   lua_pushnumber(lua, h);
+   return 2;
 }
 
 DWORD WINAPI mass_client_entry(void *arg) {
@@ -361,6 +509,11 @@ DWORD WINAPI mass_client_entry(void *arg) {
    // Lua scripts run
 
    MASS_CLIENT_ARGS        *args;
+   lua_State               *lua; 
+   FILE                    *fp;
+   uint32                  fsz;
+   void                    *buf;
+   int                     er;
 
    args = (MASS_CLIENT_ARGS*)arg;
 
@@ -369,6 +522,41 @@ DWORD WINAPI mass_client_entry(void *arg) {
    glutInitWindowSize(300, 300);
    glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE);
    glutCreateWindow("Mass");
+
+   lua = luaL_newstate();
+   luaL_openlibs(lua);
+   
+   fp = fopen(".\\Scripts\\main.lua", "rb");
+   fseek(fp, 0, SEEK_END);
+   fsz = ftell(fp);
+   fseek(fp, 0, SEEK_SET);
+   
+   buf = malloc(fsz);
+   fread(buf, fsz, 1, fp);
+   fclose(fp);
+
+   lua_pushcfunction(lua, mass_lua_scrdim);
+   lua_setglobal(lua, "mass_scrdim");
+   lua_pushcfunction(lua, mass_lua_createwindow);
+   lua_setglobal(lua, "mass_createwindow");
+   lua_pushcfunction(lua, mass_lua_winset_text);
+   lua_setglobal(lua, "mass_winset_text");
+   lua_pushcfunction(lua, mass_lua_winset_fgcolor);
+   lua_setglobal(lua, "mass_winset_fgcolor");
+   lua_pushcfunction(lua, mass_lua_winset_bgcolor);
+   lua_setglobal(lua, "mass_winset_bgcolor");
+   lua_pushcfunction(lua, mass_lua_winset_width);
+   lua_setglobal(lua, "mass_winset_width");
+   lua_pushcfunction(lua, mass_lua_winset_height);
+   lua_setglobal(lua, "mass_winset_height");
+
+   luaL_loadbuffer(lua, (char*)buf, fsz, 0);
+   er = lua_pcall(lua, 0, 0, 0);
+
+   if (er) {
+      fprintf(stderr, "%s", lua_tostring(lua, -1));
+      lua_pop(lua, 1);  /* pop error message from the stack */
+   }
 
    glutDisplayFunc(display);
    glutKeyboardFunc(keyboard);

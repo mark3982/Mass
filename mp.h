@@ -2,10 +2,10 @@
 #ifndef _MASS_MP_H
 #define _MASS_MP_H
 #include "core.h"
+#include "linklist.h"
 
 typedef struct _MASS_MP_PKT {
-   struct _MASS_MP_PKT        *next;
-   struct _MASS_MP_PKT        *prev;
+   MASS_LL_HDR                 llhdr;
    uint32                      from;
    void                       *data;
    uint32                      sz;
@@ -16,8 +16,7 @@ typedef struct _MASS_MP_PKT {
 } MASS_MP_PKT;
 
 typedef struct _MASS_MP_SOCK {
-   struct _MASS_MP_SOCK       *next;
-   struct _MASS_MP_PKT        *prev;
+   MASS_LL_HDR                llhdr;
    uint32                     addr;
    uint32                     bcaddr;
    MASS_MP_PKT                *in;

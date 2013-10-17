@@ -10,23 +10,20 @@
 #define MASS_MASTER_MAXSERVICES           128
 
 typedef struct _MASS_MASTERSERVICE {
-   struct _MASS_MASTERSERVICE             *next;
-   struct _MASS_MASTERSERVICE             *prev;
+   MASS_LL_HDR                             llhdr;
    uint32                                  addr;
    uint32                                  lping;
 } MASS_MASTERSERVICE;
 
 typedef struct _MASS_CHILDSERVICE {
-   struct _MASS_CHILDSERVICE              *next;
-   struct _MASS_CHILDSERVICE              *prev;
+   MASS_LL_HDR                            llhdr;
    uint32                                 addr;
 
    uint32                                 naddr;
 } MASS_CHILDSERVICE;
 
 typedef struct _MASS_WAITINGENTITY {
-   struct _MASS_WAITINGENTITY             *next;
-   struct _MASS_WAITINGENTITY             *prev;
+   MASS_LL_HDR                            llhdr;
    uint8                                  sent;
    MASS_ENTITY                            entity;
 } MASS_WAITINGENTITY;

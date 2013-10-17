@@ -14,21 +14,22 @@ typedef struct _MASS_CLIENT_ARGS {
 #define MASS_UI_TY_EVTINPUT            2  /* can come from controller or keyboard */
 #define MASS_UI_TY_EVTDRAG             3  /* drag detected event */ 
 
-#define MASS_UI_IN_A                   1
-#define MASS_UI_IN_B                   2
-#define MASS_UI_IN_X                   3
-#define MASS_UI_IN_Y                   4
-#define MASS_UI_IN_LS                  5
-#define MASS_UI_IN_RS                  6
-#define MASS_UI_IN_LT                  7 /* left bottom */
-#define MASS_UI_IN_LB                  8 /* left top */
-#define MASS_UI_IN_RT                  9
-#define MASS_UI_IN_RB                 10
-#define MASS_UI_IN_SELECT             11
-#define MASS_UI_IN_START              12
+#define MASS_UI_IN_A                   0x001
+#define MASS_UI_IN_B                   0x002
+#define MASS_UI_IN_X                   0x004
+#define MASS_UI_IN_Y                   0x008
+#define MASS_UI_IN_LS                  0x010
+#define MASS_UI_IN_RS                  0x020
+#define MASS_UI_IN_LT                  0x040 /* left bottom */
+#define MASS_UI_IN_LB                  0x080 /* left top */
+#define MASS_UI_IN_RT                  0x100
+#define MASS_UI_IN_RB                  0x200
+#define MASS_UI_IN_SELECT              0x300
+#define MASS_UI_IN_START               0x400
+#define MASS_UI_IN_INVALID             0x800
 
 typedef struct _MASS_UI_EVTINPUT {
-   uint8             key;              /* key mapped to keyboard or controller */
+   uint16            key;              /* key mapped to keyboard or controller */
    uint8             pushed;           /* release == !pushed */
    uint32            ptrx;             /* pointer location */
    uint32            ptry;             /* pointer location */
@@ -37,7 +38,7 @@ typedef struct _MASS_UI_EVTINPUT {
 struct _MASS_UI_WIN;
 
 typedef struct _MASS_UI_EVTDRAG {
-   uint8                      key;     /* the key that was held */
+   uint16                     key;     /* the key that was held */
    struct _MASS_UI_WIN        *from;   /* the window the drag started on */
    struct _MASS_UI_WIN        *to;     /* the window the drag ended on */
    uint32                     lx, ly;  /* local original click */
@@ -53,10 +54,10 @@ typedef void (*MASS_UI_CB) (_MASS_UI_WIN *win, uint32 evtype, void *ev);
 
 typedef struct _MASS_UI_WIN {
    MASS_LL_HDR               llhdr;            /* link list header */
-   uint32                    top;              /* top (y) corner */
-   uint32                    left;             /* left (x) corner */
-   uint32                    width;            /* window width */
-   uint32                    height;           /* window height */
+   int32                     top;              /* top (y) corner */
+   int32                     left;             /* left (x) corner */
+   int32                     width;            /* window width */
+   int32                     height;           /* window height */
    f32                       r, g, b;          /* window background color */
    struct _MASS_UI_WIN       *children;        /* children windows */
    uint32                    flags;            /* flags */

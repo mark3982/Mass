@@ -2,6 +2,8 @@
 #define _MASS_CORE_H
 #include <Windows.h>
 
+#include "linklist.h"
+
 typedef unsigned int uint32;
 typedef int int32;
 typedef unsigned short uint16;
@@ -50,8 +52,7 @@ typedef struct _MASS_ENTITY {
 
 // packaged for a linked list
 typedef struct _MASS_ENTITYCHAIN {
-   struct _MASS_ENTITYCHAIN   *next;
-   struct _MASS_ENTITYCHAIN   *prev;
+   MASS_LL_HDR                llhdr;
    MASS_ENTITY                entity;
 } MASS_ENTITYCHAIN;
 
