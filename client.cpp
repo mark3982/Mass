@@ -8,6 +8,9 @@
 #include "linklist.h"
 #include "client.h"
 
+/* I know it is bad, but I had too for the moment.. */
+static lua_State        *g_lua;
+
 MASS_UI_WIN             *windows;
 void                    *texdata;
 
@@ -77,9 +80,10 @@ GLuint mass_ui_texman_diskload(uint8 *path) {
 /*
    The default callback handler.
 */
-static void defcb(MASS_UI_WIN *win, uint32 evtype, void *ev) {
+static void defcb(lua_State *lua, MASS_UI_WIN *win, uint32 evtype, void *ev) {
    MASS_UI_EVTINPUT        *evi;
    MASS_UI_DRAG            *evd;
+   int                     er;
 
    switch (evtype) {
       case MASS_UI_TY_EVTDRAG:
@@ -99,6 +103,22 @@ static void defcb(MASS_UI_WIN *win, uint32 evtype, void *ev) {
          //win->tr = (f32)RANDFP();
          //win->tg = (f32)RANDFP();
          //win->tb = (f32)RANDFP();
+
+         // push name of function
+         lua_getglobal(lua, "mass_uievent");
+         // push arguments
+         lua_pushlightuserdata(lua, win);
+         lua_pushnumber(lua, evi->key);
+         lua_pushnumber(lua, evi->pushed);
+         lua_pushnumber(lua, evi->ptrx);
+         lua_pushnumber(lua, evi->ptry);
+         er = lua_pcall(lua, 5, 0, 0);
+
+         if (er) {
+            fprintf(stderr, "%s", lua_tostring(lua, -1));
+            lua_pop(lua, 1);  /* pop error message from the stack */
+            exit(-9);
+         }
          break;
    }
 }
@@ -140,7 +160,7 @@ static int init() {
    w[1].cb = defcb;
    w[1].text = (uint16*)L"small window";
 
-   //mass_ll_add((void**)&w[0].children, &w[1]);
+   mass_ll_add((void**)&w[0].children, &w[1]);
    return 1;
 }
 
@@ -230,7 +250,7 @@ static void _mouse(int button, int state, int x, int y) {
          devt.ly = lastY;
          devt.dx = x - lastX;
          devt.dy = y - lastY;
-         lastClicked->cb(lastClicked, MASS_UI_TY_EVTDRAG, &devt);
+         lastClicked->cb(g_lua, lastClicked, MASS_UI_TY_EVTDRAG, &devt);
       } 
    }
 
@@ -273,7 +293,7 @@ static void _mouse(int button, int state, int x, int y) {
       evt.ptrx = x;
       evt.ptry = y;
 
-      clicked->cb(clicked, MASS_UI_TY_EVTINPUT, &evt);
+      clicked->cb(g_lua, clicked, MASS_UI_TY_EVTINPUT, &evt);
    }
 }
 
@@ -556,7 +576,10 @@ DWORD WINAPI mass_client_entry(void *arg) {
    if (er) {
       fprintf(stderr, "%s", lua_tostring(lua, -1));
       lua_pop(lua, 1);  /* pop error message from the stack */
+      exit(-9);
    }
+
+   g_lua = lua;
 
    glutDisplayFunc(display);
    glutKeyboardFunc(keyboard);

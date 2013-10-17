@@ -1,6 +1,7 @@
 #ifndef _MASS_CLIENT_H
 #define _MASS_CLIENT_H
 #include <GL\glut.h>
+#include <lua.h>
 
 #include "core.h"
 #include "linklist.h"
@@ -50,7 +51,10 @@ typedef struct _MASS_UI_EVTPTR_MOVE {
    uint32               ptry;
 } MASS_UI_EVTPTR_MOVE;
 
-typedef void (*MASS_UI_CB) (_MASS_UI_WIN *win, uint32 evtype, void *ev);
+//typedef void (*MASS_UI_CB) (_MASS_UI_WIN *win, uint32 evtype, void *ev);
+// static void defcb(lua_State *lua, MASS_UI_WIN *win, uint32 evtype, void *ev)
+typedef void (*MASS_UI_CB) (lua_State *lua, _MASS_UI_WIN *win, uint32 evtype, void *ev);
+
 
 typedef struct _MASS_UI_WIN {
    MASS_LL_HDR               llhdr;            /* link list header */
