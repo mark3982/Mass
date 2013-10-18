@@ -15,6 +15,9 @@ typedef struct _MASS_CLIENT_ARGS {
 #define MASS_UI_TY_EVTINPUT            2  /* can come from controller or keyboard */
 #define MASS_UI_TY_EVTDRAG             3  /* drag detected event */ 
 
+#define MASS_UI_NOFOCUS                0x1000 /* window can not accept focus */
+#define MASS_UI_NOTOP                  0x2000 /* window never comes to the top on focus */
+
 #define MASS_UI_IN_A                   0x001
 #define MASS_UI_IN_B                   0x002
 #define MASS_UI_IN_X                   0x004
@@ -58,6 +61,7 @@ typedef void (*MASS_UI_CB) (lua_State *lua, _MASS_UI_WIN *win, uint32 evtype, vo
 
 typedef struct _MASS_UI_WIN {
    MASS_LL_HDR               llhdr;            /* link list header */
+   struct _MASS_UI_WIN       *parent;
    int32                     top;              /* top (y) corner */
    int32                     left;             /* left (x) corner */
    int32                     width;            /* window width */

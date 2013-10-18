@@ -11,6 +11,7 @@
 /* I know it is bad, but I had too for the moment.. */
 static lua_State        *g_lua;
 
+MASS_UI_WIN             *focus;
 MASS_UI_WIN             *windows;
 void                    *texdata;
 
@@ -26,6 +27,31 @@ typedef struct MASS_UI_TEXMAN_TEX {
 } MASS_UI_TEXMAN_TEX;
 
 MASS_UI_TEXMAN_TEX      *textures;   /* internal to texman */
+
+/* TODO: add code to check if 'name' already exists */
+GLuint mass_ui_texman_memload(void *texdata, int dim, uint8 *name)
+{
+   GLuint                  nref;
+   MASS_UI_TEXMAN_TEX      *ct;
+
+   ct = (MASS_UI_TEXMAN_TEX*)malloc(sizeof(MASS_UI_TEXMAN_TEX));
+
+   glGenTextures(1, &nref);
+   glBindTexture(GL_TEXTURE_2D, nref);
+   glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST);
+   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+   // GL_REPEAT
+   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+   gluBuild2DMipmaps(GL_TEXTURE_2D, 4, dim, dim, GL_RGBA, GL_UNSIGNED_BYTE, texdata);
+
+   ct->gltexref = nref;
+   ct->path = name;
+   mass_ll_add((void**)&textures, ct);
+
+   return nref;
+}
 
 GLuint mass_ui_texman_diskload(uint8 *path) {
    FILE                 *fp;
@@ -47,7 +73,6 @@ GLuint mass_ui_texman_diskload(uint8 *path) {
       return 0;
    }
 
-   ct = (MASS_UI_TEXMAN_TEX*)malloc(sizeof(MASS_UI_TEXMAN_TEX));
    ct->path = path;
 
    fseek(fp, 0, SEEK_END);
@@ -60,21 +85,53 @@ GLuint mass_ui_texman_diskload(uint8 *path) {
    /* i only produce raw images squared (256x256,512x512,..etc) and 32-bit pixel color in RGBA format */
    dim = (uint32)sqrt((f64)fsz / 4.0);
 
-   glGenTextures(1, &nref);
-   glBindTexture(GL_TEXTURE_2D, nref);
-   glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST);
-   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-   // GL_REPEAT
-   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-   gluBuild2DMipmaps(GL_TEXTURE_2D, 4, dim, dim, GL_RGBA, GL_UNSIGNED_BYTE, texdata);
-   free(texdata);
+   return mass_ui_texman_memload(texdata, dim, path);   
+}
 
-   ct->gltexref = nref;
-   mass_ll_add((void**)&textures, ct);
+void unknown() {
+   uint32      *img;
+   int         x, y;
+   uint32      color1;
 
-   return nref;
+   // bgra
+   img = (uint32*)malloc(sizeof(uint32) * 256 * 256);
+
+   //img[x + y * 256]
+   //c8d0d4ff
+   //000000ff
+
+   /* paint everything white */
+   for (x = 0; x < 256; ++x) {
+      for (y = 0; y < 256; ++y) {
+         img[x + y * 256] = 0xffffffff;
+      }
+   }
+
+   color1 = 0xc8d0d4ff;
+   color1 = 0xffc8d0d4;
+
+   /* paint border lines */
+   for (x = 0, y = 0; x < 256; ++x) {
+      img[x + y * 256] = color1;
+   }
+   for (x = 0, y = 255; x < 256; ++x) {
+      img[x + y * 256] = color1;
+   }
+   for (x = 0, y = 0; y < 256; ++y) {
+      img[x + y * 256] = color1;
+   }
+   for (x = 255, y = 0; y < 256; ++y) {
+      img[x + y * 256] = color1;
+   }
+
+   /* paint center area */
+   for (y = 2; y < 254; ++y) {
+      for (x = 2; x < 254; ++x) {
+         img[x + y * 256] = color1;
+      }
+   }
+
+   mass_ui_texman_memload(img, 256, (uint8*)"$def");
 }
 
 /*
@@ -93,20 +150,49 @@ static void defcb(lua_State *lua, MASS_UI_WIN *win, uint32 evtype, void *ev) {
          printf("dx:%i dy:%i\n", evd->dx, evd->dy);
          win->left += evd->dx;
          win->top += evd->dy;
+
+         lua_getglobal(lua, "mass_uievent_evtdrag");
+         lua_pushnumber(lua, evd->key);
+         lua_pushlightuserdata(lua, evd->from);
+         lua_pushlightuserdata(lua, evd->to);
+         lua_pushnumber(lua, evd->lx);
+         lua_pushnumber(lua, evd->ly);
+         lua_pushnumber(lua, evd->dx);
+         lua_pushnumber(lua, evd->dy);
+
+         er = lua_pcall(lua, 7, 0, 0);
+         
+         if (er) {
+            fprintf(stderr, "%s", lua_tostring(lua, -1));
+            lua_pop(lua, 1);  /* pop error message from the stack */
+         }
          break;
       case MASS_UI_TY_EVTINPUT:
          evi = (MASS_UI_EVTINPUT*)ev;
-         printf("key:%u pushed:%u x:%u y:%u\n", evi->key, evi->pushed, evi->ptrx, evi->ptry);
-         //win->r = (f32)RANDFP();
-         //win->g = (f32)RANDFP();
-         //win->b = (f32)RANDFP();
-         //win->tr = (f32)RANDFP();
-         //win->tg = (f32)RANDFP();
-         //win->tb = (f32)RANDFP();
 
-         // push name of function
-         lua_getglobal(lua, "mass_uievent");
+         /* if main button was pressed (A on Xbox or left mouse button) */
+         if (evi->key & MASS_UI_IN_A) {
+            /* bring window stack to top level on each tier while respecting flags */
+            for (MASS_UI_WIN *cw = win; cw; cw = cw->parent) {
+               if (cw->parent && !(cw->flags & MASS_UI_NOTOP)) {
+                  /* put window on top of stack (top level) */
+                  mass_ll_rem((void**)&cw->parent->children, cw);
+                  mass_ll_addLast((void**)&cw->parent->children, cw);
+               }
+            }
+
+            /* if window can not accept focus */
+            if (!win || (win->flags & MASS_UI_NOFOCUS)) {
+               focus = 0;
+            } else {
+               focus = win;
+            }
+         }
+
+         // push function
+         lua_getglobal(lua, "mass_uievent_evtinput");
          // push arguments
+         lua_pushlightuserdata(lua, focus);
          lua_pushlightuserdata(lua, win);
          lua_pushnumber(lua, evi->key);
          lua_pushnumber(lua, evi->pushed);
@@ -117,7 +203,6 @@ static void defcb(lua_State *lua, MASS_UI_WIN *win, uint32 evtype, void *ev) {
          if (er) {
             fprintf(stderr, "%s", lua_tostring(lua, -1));
             lua_pop(lua, 1);  /* pop error message from the stack */
-            exit(-9);
          }
          break;
    }
@@ -134,6 +219,10 @@ static int init() {
 
    memset(w, 0, sizeof(MASS_UI_WIN) * 4);
 
+   unknown();
+
+   focus = 0; /* no window has focus */
+
    w[0].r = 1.0;
    w[0].g = 1.0;
    w[0].b = 1.0;
@@ -145,20 +234,23 @@ static int init() {
    w[0].tr = 0.0;
    w[0].tg = 0.0;
    w[0].tb = 0.0;
-   w[0].bgimgpath = (uint8*)"texture.raw";
+   w[0].bgimgpath = (uint8*)"$def";
    w[0].cb = defcb;
 
    mass_ll_add((void**)&windows, &w[0]);
 
-   w[1].r = 0.0;
+   w[1].r = 1.0;
    w[1].g = 1.0;
-   w[1].b = 0.0;
+   w[1].b = 1.0;
    w[1].height = 100;
    w[1].width = 170;
    w[1].top = 10;
    w[1].left = 10;
    w[1].cb = defcb;
+   w[1].bgimgpath = (uint8*)"$def";
+   // TODO: fix problem with 'text' being null/zero
    w[1].text = (uint16*)L"small window";
+   w[1].parent = &w[0];
 
    mass_ll_add((void**)&w[0].children, &w[1]);
    return 1;
@@ -273,7 +365,6 @@ static void _mouse(int button, int state, int x, int y) {
       return;
 
    if (clicked->cb) {
-      printf("mouse button:%u\n", button);
       switch (button) {
          case 1:
             key = MASS_UI_IN_A;
@@ -450,6 +541,20 @@ static int mass_lua_winset_fgcolor(lua_State *lua) {
    return 0;
 }
 
+static int mass_lua_winset_location(lua_State *lua) {
+   MASS_UI_WIN    *win;
+   uint32         x, y;
+
+   win = (MASS_UI_WIN*)lua_touserdata(lua, 1);
+   x = lua_tonumber(lua, 2);
+   y = lua_tonumber(lua, 3);
+
+   win->left = x;
+   win->top = y;
+
+   return 0;
+}
+
 static int mass_lua_winset_width(lua_State *lua) {
    MASS_UI_WIN    *win;
 
@@ -495,13 +600,21 @@ static int mass_lua_winset_text(lua_State *lua) {
 
 static int mass_lua_createwindow(lua_State *lua) {
    MASS_UI_WIN    *win;
+   MASS_UI_WIN    *parent;
 
    win = (MASS_UI_WIN*)malloc(sizeof(MASS_UI_WIN));
    memset(win, 0, sizeof(MASS_UI_WIN));
 
-   win->cb = defcb;
+   parent = (MASS_UI_WIN*)lua_touserdata(lua, 1);
 
-   mass_ll_addLast((void**)&windows, win);
+   win->cb = defcb;
+   win->parent = parent;
+
+   /* either add to top level or as child */
+   if (!parent)
+      mass_ll_addLast((void**)&windows, win);
+   else
+      mass_ll_addLast((void**)&parent->children, win);
 
    lua_pushlightuserdata(lua, win);
    return 1;
@@ -569,6 +682,8 @@ DWORD WINAPI mass_client_entry(void *arg) {
    lua_setglobal(lua, "mass_winset_width");
    lua_pushcfunction(lua, mass_lua_winset_height);
    lua_setglobal(lua, "mass_winset_height");
+   lua_pushcfunction(lua, mass_lua_winset_location);
+   lua_setglobal(lua, "mass_winset_location");
 
    luaL_loadbuffer(lua, (char*)buf, fsz, 0);
    er = lua_pcall(lua, 0, 0, 0);

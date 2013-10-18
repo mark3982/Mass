@@ -22,7 +22,6 @@ void *mass_ll_last(void *chain) {
       void        *l;
 
       for (p = chain, l = chain; p != 0; l = p, p = mass_ll_next(p)) {
-         printf("p:%x\n", p);
       }
 
       return l;
@@ -62,7 +61,6 @@ void *mass_ll_pop(void **chain) {
    return i;
 }
 
-// potential major performance problem
 void mass_ll_rem(void **chain, void *torem) {
    /* old style
    if (*chain == torem) {
@@ -98,6 +96,18 @@ void mass_ll_rem(void **chain, void *torem) {
       direction beyond the 'chain' variable; but if we do this tries
       to help slide the chain back down by preferring to use the
       previous link as the 'good' link as you can see below
+
+      A<--->B<--->C<--->D
+            ^
+            root
+
+      Nothing should ever be previous from the root, but I suppose
+      somehow it could happen. So in this case A will be prefered
+      to be the next root if we removed B instead of C being 
+      choosen.
+
+      Also anything previous to the root could be easily skipped
+      when iterating the chain using the next method.
    */
    if (((void**)torem)[1]) {
       ((void**)((void**)torem)[1])[0] = ((void**)torem)[0];
@@ -107,4 +117,8 @@ void mass_ll_rem(void **chain, void *torem) {
    if (*chain == torem) {
       *chain = good;
    }
+
+   /* just for safetly and maybe make debugging easier */
+   ((void**)torem)[0] = 0;
+   ((void**)torem)[1] = 0;
 }
