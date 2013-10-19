@@ -17,6 +17,7 @@ typedef struct _MASS_CLIENT_ARGS {
 
 #define MASS_UI_NOFOCUS                0x1000 /* window can not accept focus */
 #define MASS_UI_NOTOP                  0x2000 /* window never comes to the top on focus */
+#define MASS_UI_DRAGGABLE              0x3000 /* if a window can be dragged (off by default) */
 
 #define MASS_UI_IN_A                   0x001
 #define MASS_UI_IN_B                   0x002

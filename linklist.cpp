@@ -14,12 +14,15 @@ void *mass_ll_prev(void *ptr) {
       return 0;
    }
 
+   printf("prev:%p\n", ((void**)ptr)[1]);
+
    return ((void**)ptr)[1];
 }
 
 void *mass_ll_last(void *chain) {
       void        *p;
       void        *l;
+      MASS_LL_HDR *tmp;
 
       for (p = chain, l = chain; p != 0; l = p, p = mass_ll_next(p)) {
       }
@@ -39,6 +42,12 @@ void mass_ll_addLast(void **chain, void *toadd) {
    /* set previous link and next link */
    ((void**)toadd)[1] = l;
    ((void**)toadd)[0] = 0;
+
+   /* if no 'l' then chain is empty */
+   if (l)
+      ((void**)l)[0] = toadd;
+   else
+      *chain = toadd;
 }
 
 /*
@@ -47,6 +56,11 @@ void mass_ll_addLast(void **chain, void *toadd) {
 void mass_ll_add(void **chain, void *toadd) {
    ((void**)toadd)[0] = *chain;
    ((void**)toadd)[1] = 0;       /* set previous */
+
+   /* set previous link if valid pointer */
+   if (*chain)
+      ((void**)*chain)[1] = toadd;
+
    *chain = toadd;
 }
 
@@ -81,7 +95,7 @@ void mass_ll_rem(void **chain, void *torem) {
    void     *good;
 
    /* new style (check if the direction is valid and update to skip 'torem' */
-
+   good = 0;
    /*
       if forward pointer is valid; set next in chain prev field to our prev field
    */

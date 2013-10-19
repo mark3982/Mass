@@ -8,6 +8,19 @@
 #include "linklist.h"
 #include "client.h"
 
+/*
+   There are three code layers to window management.
+
+   1. Internal C/C++ Management
+      Handles rendering the windows, text, textures, ..etc.
+   2. Internal C/C++ Callback
+      This handles mainly converting the window events into Lua 
+      calls so that Lua can handle events. It also checks if
+      a window can be dragged before sending Lua the event, and
+      it actually performs the window drag.
+   3. External Lua Callback 
+*/
+
 /* I know it is bad, but I had too for the moment.. */
 static lua_State        *g_lua;
 
@@ -145,9 +158,11 @@ static void defcb(lua_State *lua, MASS_UI_WIN *win, uint32 evtype, void *ev) {
    switch (evtype) {
       case MASS_UI_TY_EVTDRAG:
          evd = (MASS_UI_DRAG*)ev;
-         printf("drag from:%x to:%x", evd->from, evd->to);
-         printf("lx:%u ly:%u", evd->lx, evd->ly);
-         printf("dx:%i dy:%i\n", evd->dx, evd->dy);
+         
+         /* check if the window can be dragged */
+         if (!(evd->from->flags & MASS_UI_DRAGGABLE))
+            break;
+
          win->left += evd->dx;
          win->top += evd->dy;
 
@@ -171,13 +186,19 @@ static void defcb(lua_State *lua, MASS_UI_WIN *win, uint32 evtype, void *ev) {
          evi = (MASS_UI_EVTINPUT*)ev;
 
          /* if main button was pressed (A on Xbox or left mouse button) */
-         if (evi->key & MASS_UI_IN_A) {
+         if ((evi->key & MASS_UI_IN_A) && (evi->pushed != 0)) {
             /* bring window stack to top level on each tier while respecting flags */
             for (MASS_UI_WIN *cw = win; cw; cw = cw->parent) {
-               if (cw->parent && !(cw->flags & MASS_UI_NOTOP)) {
+               if (!(cw->flags & MASS_UI_NOTOP))
+               if (cw->parent) {
                   /* put window on top of stack (top level) */
                   mass_ll_rem((void**)&cw->parent->children, cw);
                   mass_ll_addLast((void**)&cw->parent->children, cw);
+               } else {
+                  /* if no parent it must be a top level window */
+                  mass_ll_rem((void**)&windows, cw);
+                  /* last in chain is last rendered (and appears on top of other windows) */
+                  mass_ll_addLast((void**)&windows, cw);
                }
             }
 
@@ -198,7 +219,7 @@ static void defcb(lua_State *lua, MASS_UI_WIN *win, uint32 evtype, void *ev) {
          lua_pushnumber(lua, evi->pushed);
          lua_pushnumber(lua, evi->ptrx);
          lua_pushnumber(lua, evi->ptry);
-         er = lua_pcall(lua, 5, 0, 0);
+         er = lua_pcall(lua, 6, 0, 0);
 
          if (er) {
             fprintf(stderr, "%s", lua_tostring(lua, -1));
@@ -462,14 +483,14 @@ static void mass_ui_draw(MASS_UI_WIN *windows, f64 gx, f64 gy, f64 gw, f64 gh, f
       glVertex2d(ax, -ah);
       glEnd();
 
+      if (cw->text) {
+         glColor3f(cw->tr, cw->tg, cw->tb);
+         glRasterPos2d(ax, -ay - 8.0 * fph);
 
-      glColor3f(cw->tr, cw->tg, cw->tb);
-      glRasterPos2d(ax, -ay - 8.0 * fph);
-
-      for (int32 i = 0, x = 0; cw->text[x] != 0 && i < cw->width - 8; ++x, i += 8) {
-         glutBitmapCharacter(GLUT_BITMAP_8_BY_13, cw->text[x]);
+         for (int32 i = 0, x = 0; cw->text[x] != 0 && i < cw->width - 8; ++x, i += 8) {
+            glutBitmapCharacter(GLUT_BITMAP_8_BY_13, cw->text[x]);
+         }
       }
-
       mass_ui_draw(cw->children, ax, ay, aw, ah, fpw, fph);
    }
 }
