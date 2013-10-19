@@ -14,8 +14,6 @@ void *mass_ll_prev(void *ptr) {
       return 0;
    }
 
-   printf("prev:%p\n", ((void**)ptr)[1]);
-
    return ((void**)ptr)[1];
 }
 

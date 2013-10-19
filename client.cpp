@@ -189,16 +189,17 @@ static void defcb(lua_State *lua, MASS_UI_WIN *win, uint32 evtype, void *ev) {
          if ((evi->key & MASS_UI_IN_A) && (evi->pushed != 0)) {
             /* bring window stack to top level on each tier while respecting flags */
             for (MASS_UI_WIN *cw = win; cw; cw = cw->parent) {
-               if (!(cw->flags & MASS_UI_NOTOP))
-               if (cw->parent) {
-                  /* put window on top of stack (top level) */
-                  mass_ll_rem((void**)&cw->parent->children, cw);
-                  mass_ll_addLast((void**)&cw->parent->children, cw);
-               } else {
-                  /* if no parent it must be a top level window */
-                  mass_ll_rem((void**)&windows, cw);
-                  /* last in chain is last rendered (and appears on top of other windows) */
-                  mass_ll_addLast((void**)&windows, cw);
+               if ((cw->flags & MASS_UI_NOTOP) == 0) {
+                  if (cw->parent) {
+                     /* put window on top of stack (top level) */
+                     mass_ll_rem((void**)&cw->parent->children, cw);
+                     mass_ll_addLast((void**)&cw->parent->children, cw);
+                  } else {
+                     /* if no parent it must be a top level window */
+                     mass_ll_rem((void**)&windows, cw);
+                     /* last in chain is last rendered (and appears on top of other windows) */
+                     mass_ll_addLast((void**)&windows, cw);
+                  }
                }
             }
 
@@ -244,6 +245,7 @@ static int init() {
 
    focus = 0; /* no window has focus */
 
+   w[0].flags |= MASS_UI_DRAGGABLE;
    w[0].r = 1.0;
    w[0].g = 1.0;
    w[0].b = 1.0;
@@ -260,6 +262,7 @@ static int init() {
 
    mass_ll_add((void**)&windows, &w[0]);
 
+   w[1].flags |= MASS_UI_DRAGGABLE;
    w[1].r = 1.0;
    w[1].g = 1.0;
    w[1].b = 1.0;
@@ -276,18 +279,6 @@ static int init() {
    mass_ll_add((void**)&w[0].children, &w[1]);
    return 1;
 }
-
-/*
-   Any window with this flag set will not allow clicks to progress
-   any further causing mass_ui_click to return this window. 
-
-   A good example is when you are a button and have multiple child
-   windows which may be showing text and/or a graphic and you do not
-   want to write click handling code for each of these in the event
-   they are clicked which will be highly possible. So essentially
-   this flag aids the programming writing code for this window system.
-*/
-#define MASS_UI_NOPASSCLICK            0x01
 
 /*
    This will iterate though the windows and into their children finding ultimately
@@ -562,6 +553,36 @@ static int mass_lua_winset_fgcolor(lua_State *lua) {
    return 0;
 }
 
+static int mass_lua_winset_bgimg(lua_State *lua) {
+   MASS_UI_WIN    *win;
+   uint8          *bgimg;
+   const char     *tmp;
+
+   win = (MASS_UI_WIN*)lua_touserdata(lua, 1);
+
+   tmp = lua_tostring(lua, 2);
+
+   bgimg = (uint8*)malloc(strlen(tmp));
+   strcpy((char*)bgimg, tmp);
+
+   /* if already set clear it and free the string */
+   if (win->bgimgpath)
+      free(win->bgimgpath);
+
+   win->bgimgpath = bgimg;
+   return 0;
+}
+
+static int mass_lua_winset_flags(lua_State *lua) {
+   MASS_UI_WIN    *win;
+
+   win = (MASS_UI_WIN*)lua_touserdata(lua, 1);
+
+   win->flags = (uint32)lua_tonumber(lua, 2);
+
+   return 0;
+}
+
 static int mass_lua_winset_location(lua_State *lua) {
    MASS_UI_WIN    *win;
    uint32         x, y;
@@ -680,7 +701,7 @@ DWORD WINAPI mass_client_entry(void *arg) {
    lua = luaL_newstate();
    luaL_openlibs(lua);
    
-   fp = fopen(".\\Scripts\\main.lua", "rb");
+   fp = fopen(".\\Scripts\\init.lua", "rb");
    fseek(fp, 0, SEEK_END);
    fsz = ftell(fp);
    fseek(fp, 0, SEEK_SET);
@@ -705,6 +726,10 @@ DWORD WINAPI mass_client_entry(void *arg) {
    lua_setglobal(lua, "mass_winset_height");
    lua_pushcfunction(lua, mass_lua_winset_location);
    lua_setglobal(lua, "mass_winset_location");
+   lua_pushcfunction(lua, mass_lua_winset_flags);
+   lua_setglobal(lua, "mass_winset_flags");
+   lua_pushcfunction(lua, mass_lua_winset_bgimg);
+   lua_setglobal(lua, "mass_winset_bgimg");
 
    luaL_loadbuffer(lua, (char*)buf, fsz, 0);
    er = lua_pcall(lua, 0, 0, 0);

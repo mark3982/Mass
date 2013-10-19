@@ -15,9 +15,20 @@ typedef struct _MASS_CLIENT_ARGS {
 #define MASS_UI_TY_EVTINPUT            2  /* can come from controller or keyboard */
 #define MASS_UI_TY_EVTDRAG             3  /* drag detected event */ 
 
+/*
+   Any window with this flag set will not allow clicks to progress
+   any further causing mass_ui_click to return this window. 
+
+   A good example is when you are a button and have multiple child
+   windows which may be showing text and/or a graphic and you do not
+   want to write click handling code for each of these in the event
+   they are clicked which will be highly possible. So essentially
+   this flag aids the programming writing code for this window system.
+*/
+#define MASS_UI_NOPASSCLICK            0x8000
 #define MASS_UI_NOFOCUS                0x1000 /* window can not accept focus */
 #define MASS_UI_NOTOP                  0x2000 /* window never comes to the top on focus */
-#define MASS_UI_DRAGGABLE              0x3000 /* if a window can be dragged (off by default) */
+#define MASS_UI_DRAGGABLE              0x4000 /* if a window can be dragged (off by default) */
 
 #define MASS_UI_IN_A                   0x001
 #define MASS_UI_IN_B                   0x002
