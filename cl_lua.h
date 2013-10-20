@@ -4,5 +4,6 @@
 
 void mass_cl_luacb(MASS_UI_WIN *win, uint32 evtype, void *ev);
 void mass_cl_luainit();
+void mass_cl_luaRenderTick();
 
 #endif

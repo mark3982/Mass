@@ -96,6 +96,28 @@ static int mass_lua_loadfile(lua_State *lua) {
    return 1;
 }
 
+/*
+   This is called during each render tick, from client.cpp.
+*/
+void mass_cl_luaRenderTick() {
+   int               er;
+
+   lua_getglobal(lua, "debug");
+   lua_getfield(lua, -1, "traceback");
+   lua_remove(lua, -2);
+
+   lua_getglobal(lua, "mass_rendertick");
+   er = lua_pcall(lua, 0, 0, 1);
+         
+   if (er) {
+      fprintf(stderr, "%s\n", lua_tostring(lua, -1));
+      lua_pop(lua, 1);  /* pop error message from the stack */
+   }
+
+   /* pop error handler */
+   lua_pop(lua, 1);
+}
+
 void mass_cl_luainit() {
    FILE           *fp;
    int            fsz;
@@ -191,7 +213,7 @@ void mass_cl_luacb(MASS_UI_WIN *win, uint32 evtype, void *ev) {
          lua_getfield(lua, -1, "traceback");
          lua_remove(lua, -2);
 
-         lua_getglobal(lua, "mass_uievent_evtdrag");
+         lua_getglobal(lua, "mass_evtdrag");
          lua_pushnumber(lua, evd->key);
          lua_pushlightuserdata(lua, evd->from);
          lua_pushlightuserdata(lua, evd->to);
@@ -219,7 +241,7 @@ void mass_cl_luacb(MASS_UI_WIN *win, uint32 evtype, void *ev) {
          lua_remove(lua, -2);
          
          /* push function */
-         lua_getglobal(lua, "mass_uievent_evtinput");
+         lua_getglobal(lua, "mass_evtinput");
          /* push arguments in order left to right */
          lua_pushlightuserdata(lua, evi->focus);
          lua_pushlightuserdata(lua, win);

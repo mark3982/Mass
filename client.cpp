@@ -471,6 +471,8 @@ static void display() {
 static void idle(int interval) {
    glutPostRedisplay();
    glutTimerFunc(1000 / 40, idle, 0);
+   /* also let Lua do anything it needs per render tick */
+   mass_cl_luaRenderTick();
 }
 
 /*
