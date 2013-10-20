@@ -462,11 +462,15 @@ static void display() {
 }
 
 /*
-   This is called by GLUT if our thread
-   is idle. (not handling events)
+   This function is called every 40/1000 milliseconds
+   to hopefully produce roughly 40 fps. This is the 
+   only obvious way I can think of at this time. If
+   something better is needed then it can be improved
+   later.
 */
-static void idle() {
+static void idle(int interval) {
    glutPostRedisplay();
+   glutTimerFunc(1000 / 40, idle, 0);
 }
 
 /*
@@ -663,7 +667,7 @@ DWORD WINAPI mass_client_entry(void *arg) {
    glutDisplayFunc(display);
    glutKeyboardFunc(keyboard);
    glutMouseFunc(mouse);
-   glutIdleFunc(idle);
+   glutTimerFunc(1000 / 40, idle, 0);
 
    if (!init())
       return 1;
