@@ -7,6 +7,7 @@
 
 #include "linklist.h"
 #include "client.h"
+#include "cl_lua.h"
 
 /*
    There are three code layers to window management.
@@ -21,12 +22,9 @@
    3. External Lua Callback 
 */
 
-/* I know it is bad, but I had too for the moment.. */
-static lua_State        *g_lua;
-
-MASS_UI_WIN             *focus;
-MASS_UI_WIN             *windows;
-void                    *texdata;
+static MASS_UI_WIN             *focus;
+static MASS_UI_WIN             *windows;
+static void                    *texdata;
 
 /*
    The texman primary job is to make sure textures
@@ -147,104 +145,17 @@ void unknown() {
    mass_ui_texman_memload(img, 256, (uint8*)"$def");
 }
 
-/*
-   The default callback handler.
-*/
-static void defcb(lua_State *lua, MASS_UI_WIN *win, uint32 evtype, void *ev) {
-   MASS_UI_EVTINPUT        *evi;
-   MASS_UI_DRAG            *evd;
-   int                     er;
-
-   switch (evtype) {
-      case MASS_UI_TY_EVTDRAG:
-         evd = (MASS_UI_DRAG*)ev;
-         
-         /* check if the window can be dragged */
-         if (!(evd->from->flags & MASS_UI_DRAGGABLE))
-            break;
-
-         win->left += evd->dx;
-         win->top += evd->dy;
-
-         lua_getglobal(lua, "mass_uievent_evtdrag");
-         lua_pushnumber(lua, evd->key);
-         lua_pushlightuserdata(lua, evd->from);
-         lua_pushlightuserdata(lua, evd->to);
-         lua_pushnumber(lua, evd->lx);
-         lua_pushnumber(lua, evd->ly);
-         lua_pushnumber(lua, evd->dx);
-         lua_pushnumber(lua, evd->dy);
-
-         er = lua_pcall(lua, 7, 0, 0);
-         
-         if (er) {
-            fprintf(stderr, "%s", lua_tostring(lua, -1));
-            lua_pop(lua, 1);  /* pop error message from the stack */
-         }
-         break;
-      case MASS_UI_TY_EVTINPUT:
-         evi = (MASS_UI_EVTINPUT*)ev;
-
-         /* if main button was pressed (A on Xbox or left mouse button) */
-         if ((evi->key & MASS_UI_IN_A) && (evi->pushed != 0)) {
-            /* bring window stack to top level on each tier while respecting flags */
-            for (MASS_UI_WIN *cw = win; cw; cw = cw->parent) {
-               if ((cw->flags & MASS_UI_NOTOP) == 0) {
-                  if (cw->parent) {
-                     /* put window on top of stack (top level) */
-                     mass_ll_rem((void**)&cw->parent->children, cw);
-                     mass_ll_addLast((void**)&cw->parent->children, cw);
-                  } else {
-                     /* if no parent it must be a top level window */
-                     mass_ll_rem((void**)&windows, cw);
-                     /* last in chain is last rendered (and appears on top of other windows) */
-                     mass_ll_addLast((void**)&windows, cw);
-                  }
-               }
-            }
-
-            /* if window can not accept focus */
-            if (!win || (win->flags & MASS_UI_NOFOCUS)) {
-               focus = 0;
-            } else {
-               focus = win;
-            }
-         }
-
-         // push function
-         lua_getglobal(lua, "mass_uievent_evtinput");
-         // push arguments
-         lua_pushlightuserdata(lua, focus);
-         lua_pushlightuserdata(lua, win);
-         lua_pushnumber(lua, evi->key);
-         lua_pushnumber(lua, evi->pushed);
-         lua_pushnumber(lua, evi->ptrx);
-         lua_pushnumber(lua, evi->ptry);
-         er = lua_pcall(lua, 6, 0, 0);
-
-         if (er) {
-            fprintf(stderr, "%s", lua_tostring(lua, -1));
-            lua_pop(lua, 1);  /* pop error message from the stack */
-         }
-         break;
-   }
-}
-
 static int init() {
-
-   MASS_UI_WIN       *w;
+   //MASS_UI_WIN       *w;
 
    //char              cwd[1024];
    //GetCurrentDirectoryA(1024, &cwd[0]);
 
-   w = (MASS_UI_WIN*)malloc(sizeof(MASS_UI_WIN) * 4);
+   //w = (MASS_UI_WIN*)malloc(sizeof(MASS_UI_WIN) * 4);
 
-   memset(w, 0, sizeof(MASS_UI_WIN) * 4);
+   //memset(w, 0, sizeof(MASS_UI_WIN) * 4);
 
-   unknown();
-
-   focus = 0; /* no window has focus */
-
+   /*
    w[0].flags |= MASS_UI_DRAGGABLE;
    w[0].r = 1.0;
    w[0].g = 1.0;
@@ -277,12 +188,12 @@ static int init() {
    w[1].parent = &w[0];
 
    mass_ll_add((void**)&w[0].children, &w[1]);
+   */
    return 1;
 }
 
 /*
-   This will iterate though the windows and into their children finding ultimately
-   which window was clicked.
+   This handles determining what window was clicked and where.
 */
 static int mass_ui_click(MASS_UI_WIN *windows, int32 x, int32 y, MASS_UI_WIN **clicked, uint32 *lx, uint32 *ly) {
    *clicked = 0;
@@ -320,7 +231,11 @@ static int mass_ui_click(MASS_UI_WIN *windows, int32 x, int32 y, MASS_UI_WIN **c
    return 0;
 }
 
-/* actual function handling mouse */
+/*
+   This handles (actually) events from both the keyboard AND the mouse. It
+   does not handle mouse move events at the moment. At the time of this
+   writting they are not implemented.
+*/
 static void _mouse(int button, int state, int x, int y) {
    MASS_UI_WIN          *clicked;
    uint32               lx, ly;
@@ -396,11 +311,41 @@ static void _mouse(int button, int state, int x, int y) {
       evt.ptrx = x;
       evt.ptry = y;
 
+      /* if main button was pressed (A on Xbox or left mouse button) */
+      if ((evt.key & MASS_UI_IN_A) && (evt.pushed != 0)) {
+         /* bring window stack to top level on each tier while respecting flags */
+         for (MASS_UI_WIN *cw = clicked; cw; cw = cw->parent) {
+            if ((cw->flags & MASS_UI_NOTOP) == 0) {
+               if (cw->parent) {
+                  /* put window on top of stack (top level) */
+                  mass_ll_rem((void**)&cw->parent->children, cw);
+                  mass_ll_addLast((void**)&cw->parent->children, cw);
+               } else {
+                  /* if no parent it must be a top level window */
+                  mass_ll_rem((void**)&windows, cw);
+                  /* last in chain is last rendered (and appears on top of other windows) */
+                  mass_ll_addLast((void**)&windows, cw);
+               }
+            }
+         }
+
+         /* if window can not accept focus */
+         if (!clicked || (clicked->flags & MASS_UI_NOFOCUS)) {
+            /* focus = 0; -- just do not change the focus */
+         } else {
+            focus = clicked;
+         }
+      }
+
+      evt.focus = focus;
+
       clicked->cb(g_lua, clicked, MASS_UI_TY_EVTINPUT, &evt);
    }
 }
 
-/* function called by GLUT */
+/*
+   This is the entry point for mouse events from GLUT.
+*/
 static void mouse(int button, int state, int x, int y) {
    /* we need to map the buttons to another configuration like a controller */
    switch (button) {
@@ -416,6 +361,9 @@ static void mouse(int button, int state, int x, int y) {
    }
 }
 
+/*
+   A recursively called function capable of drawing the UI.
+*/
 static void mass_ui_draw(MASS_UI_WIN *windows, f64 gx, f64 gy, f64 gw, f64 gh, f64 fpw, f64 fph) {
    f64         ax, ay, aw, ah;
    f64         cgw, cgh;        /* changed width and height */
@@ -489,28 +437,34 @@ static void mass_ui_draw(MASS_UI_WIN *windows, f64 gx, f64 gy, f64 gw, f64 gh, f
 static void display() {
    int         w, h;
 
-   w = glutGet(GLUT_WINDOW_WIDTH);
-   h = glutGet(GLUT_WINDOW_HEIGHT);
-
+   /* initialize */
    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); 
-
    gluPerspective(0.5, 1.0, 0.1, 1000.0);
-
    glLoadIdentity();
 
+   /* draw */
    glPointSize(5.0);
    glColor3d(1.0, 1.0, 1.0);
    glBegin(GL_POINTS);
    glVertex3d(0.0, 0.0, 1.0);
    glEnd();
 
+   /*
+      The call starts the draw operation of the UI. This is
+      where the UI drawing code starts and ends.
+   */
+   w = glutGet(GLUT_WINDOW_WIDTH);
+   h = glutGet(GLUT_WINDOW_HEIGHT);
    gluOrtho2D(0.0, 0.0, w, h);
-
    mass_ui_draw(windows, -1.0, -1.0, 0.8, 0.8, 2.0 / w, 2.0 / h);
 
    glutSwapBuffers();
 }
 
+/*
+   This is called by GLUT if our thread
+   is idle. (not handling events)
+*/
 static void idle() {
    glutPostRedisplay();
 }
@@ -518,7 +472,10 @@ static void idle() {
 /*
    This is the keymap of the keyboard and the
    XBox controller. It could be any controller
-   even a PS3 one.
+   even a PS3 one. I just wanted to go ahead
+   and have this layer of abstraction if it does
+   turn out possible to get this to run on Xbox
+   or the PS.
 */
 static uint16 mass_ui_whatbtn(unsigned char key) {
    switch (key) {
@@ -534,6 +491,12 @@ static uint16 mass_ui_whatbtn(unsigned char key) {
    }
 }
 
+/*
+   At the moment the _mouse works as the catch all.
+   It could prolly be named differently but I have not got
+   around to messing with it. And, also mouse events
+   go through this _mouse procedure.
+*/
 static void keyboardup(unsigned char key, int x, int y) {
    _mouse(mass_ui_whatbtn(key), 0, x, y);
 }
@@ -541,7 +504,10 @@ static void keyboard(unsigned char key, int x, int y) {
    _mouse(mass_ui_whatbtn(key), 1, x, y);
 }
 
-static int mass_lua_winset_fgcolor(lua_State *lua) {
+/*
+   The C UI to Lua interface.
+*/
+int mass_lua_winset_fgcolor(lua_State *lua) {
    MASS_UI_WIN    *win;
 
    win = (MASS_UI_WIN*)lua_touserdata(lua, 1);
@@ -552,8 +518,7 @@ static int mass_lua_winset_fgcolor(lua_State *lua) {
 
    return 0;
 }
-
-static int mass_lua_winset_bgimg(lua_State *lua) {
+int mass_lua_winset_bgimg(lua_State *lua) {
    MASS_UI_WIN    *win;
    uint8          *bgimg;
    const char     *tmp;
@@ -572,8 +537,7 @@ static int mass_lua_winset_bgimg(lua_State *lua) {
    win->bgimgpath = bgimg;
    return 0;
 }
-
-static int mass_lua_winset_flags(lua_State *lua) {
+int mass_lua_winset_flags(lua_State *lua) {
    MASS_UI_WIN    *win;
 
    win = (MASS_UI_WIN*)lua_touserdata(lua, 1);
@@ -582,22 +546,20 @@ static int mass_lua_winset_flags(lua_State *lua) {
 
    return 0;
 }
-
-static int mass_lua_winset_location(lua_State *lua) {
+int mass_lua_winset_location(lua_State *lua) {
    MASS_UI_WIN    *win;
    uint32         x, y;
 
    win = (MASS_UI_WIN*)lua_touserdata(lua, 1);
-   x = lua_tonumber(lua, 2);
-   y = lua_tonumber(lua, 3);
+   x = (uint32)lua_tonumber(lua, 2);
+   y = (uint32)lua_tonumber(lua, 3);
 
    win->left = x;
    win->top = y;
 
    return 0;
 }
-
-static int mass_lua_winset_width(lua_State *lua) {
+int mass_lua_winset_width(lua_State *lua) {
    MASS_UI_WIN    *win;
 
    win = (MASS_UI_WIN*)lua_touserdata(lua, 1);
@@ -606,8 +568,7 @@ static int mass_lua_winset_width(lua_State *lua) {
 
    return 0;
 }
-
-static int mass_lua_winset_height(lua_State *lua) {
+int mass_lua_winset_height(lua_State *lua) {
    MASS_UI_WIN    *win;
 
    win = (MASS_UI_WIN*)lua_touserdata(lua, 1);
@@ -616,8 +577,7 @@ static int mass_lua_winset_height(lua_State *lua) {
 
    return 0;
 }
-
-static int mass_lua_winset_bgcolor(lua_State *lua) {
+int mass_lua_winset_bgcolor(lua_State *lua) {
    MASS_UI_WIN    *win;
 
    win = (MASS_UI_WIN*)lua_touserdata(lua, 1);
@@ -628,8 +588,7 @@ static int mass_lua_winset_bgcolor(lua_State *lua) {
 
    return 0;
 }
-
-static int mass_lua_winset_text(lua_State *lua) {
+int mass_lua_winset_text(lua_State *lua) {
    MASS_UI_WIN    *win;
 
    win = (MASS_UI_WIN*)lua_touserdata(lua, 1);
@@ -639,8 +598,18 @@ static int mass_lua_winset_text(lua_State *lua) {
 
    return 0;
 }
+int mass_lua_destroywindow(lua_State *lua) {
+   MASS_UI_WIN    *win;
 
-static int mass_lua_createwindow(lua_State *lua) {
+   win = (MASS_UI_WIN*)lua_touserdata(lua, 1);
+
+   if (win->parent)
+      mass_ll_rem((void**)&win->parent->children, win);
+   else
+      mass_ll_rem((void**)&windows, win);
+   return 0;
+}
+int mass_lua_createwindow(lua_State *lua) {
    MASS_UI_WIN    *win;
    MASS_UI_WIN    *parent;
 
@@ -649,7 +618,8 @@ static int mass_lua_createwindow(lua_State *lua) {
 
    parent = (MASS_UI_WIN*)lua_touserdata(lua, 1);
 
-   win->cb = defcb;
+   /* set the Lua interface callback */
+   win->cb = mass_cl_luacb;
    win->parent = parent;
 
    /* either add to top level or as child */
@@ -661,11 +631,7 @@ static int mass_lua_createwindow(lua_State *lua) {
    lua_pushlightuserdata(lua, win);
    return 1;
 }
-
-/*
-   global Lua function as 'mass_scrdim'.
-*/
-static int mass_lua_scrdim(lua_State *lua) {
+int mass_lua_scrdim(lua_State *lua) {
    int      w;
    int      h;
 
@@ -677,17 +643,11 @@ static int mass_lua_scrdim(lua_State *lua) {
    return 2;
 }
 
+/*
+   The client entry point.
+*/
 DWORD WINAPI mass_client_entry(void *arg) {
-   // initialize Lua
-   // initialize OpenGL
-   // implement support for Lua window drawing to create the UI
-   // Lua scripts run
-
    MASS_CLIENT_ARGS        *args;
-   lua_State               *lua; 
-   FILE                    *fp;
-   uint32                  fsz;
-   void                    *buf;
    int                     er;
 
    args = (MASS_CLIENT_ARGS*)arg;
@@ -698,49 +658,7 @@ DWORD WINAPI mass_client_entry(void *arg) {
    glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE);
    glutCreateWindow("Mass");
 
-   lua = luaL_newstate();
-   luaL_openlibs(lua);
-   
-   fp = fopen(".\\Scripts\\init.lua", "rb");
-   fseek(fp, 0, SEEK_END);
-   fsz = ftell(fp);
-   fseek(fp, 0, SEEK_SET);
-   
-   buf = malloc(fsz);
-   fread(buf, fsz, 1, fp);
-   fclose(fp);
-
-   lua_pushcfunction(lua, mass_lua_scrdim);
-   lua_setglobal(lua, "mass_scrdim");
-   lua_pushcfunction(lua, mass_lua_createwindow);
-   lua_setglobal(lua, "mass_createwindow");
-   lua_pushcfunction(lua, mass_lua_winset_text);
-   lua_setglobal(lua, "mass_winset_text");
-   lua_pushcfunction(lua, mass_lua_winset_fgcolor);
-   lua_setglobal(lua, "mass_winset_fgcolor");
-   lua_pushcfunction(lua, mass_lua_winset_bgcolor);
-   lua_setglobal(lua, "mass_winset_bgcolor");
-   lua_pushcfunction(lua, mass_lua_winset_width);
-   lua_setglobal(lua, "mass_winset_width");
-   lua_pushcfunction(lua, mass_lua_winset_height);
-   lua_setglobal(lua, "mass_winset_height");
-   lua_pushcfunction(lua, mass_lua_winset_location);
-   lua_setglobal(lua, "mass_winset_location");
-   lua_pushcfunction(lua, mass_lua_winset_flags);
-   lua_setglobal(lua, "mass_winset_flags");
-   lua_pushcfunction(lua, mass_lua_winset_bgimg);
-   lua_setglobal(lua, "mass_winset_bgimg");
-
-   luaL_loadbuffer(lua, (char*)buf, fsz, 0);
-   er = lua_pcall(lua, 0, 0, 0);
-
-   if (er) {
-      fprintf(stderr, "%s", lua_tostring(lua, -1));
-      lua_pop(lua, 1);  /* pop error message from the stack */
-      exit(-9);
-   }
-
-   g_lua = lua;
+   mass_cl_luainit();
 
    glutDisplayFunc(display);
    glutKeyboardFunc(keyboard);
@@ -749,6 +667,12 @@ DWORD WINAPI mass_client_entry(void *arg) {
 
    if (!init())
       return 1;
+
+   /*
+      Here I initialize some pre-generted textures and set the focus to zero.
+   */
+   unknown();  /* generate textures */
+   focus = 0;
 
    glutMainLoop();
    return 0;

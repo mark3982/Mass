@@ -45,10 +45,11 @@ typedef struct _MASS_CLIENT_ARGS {
 #define MASS_UI_IN_INVALID             0x800
 
 typedef struct _MASS_UI_EVTINPUT {
-   uint16            key;              /* key mapped to keyboard or controller */
-   uint8             pushed;           /* release == !pushed */
-   uint32            ptrx;             /* pointer location */
-   uint32            ptry;             /* pointer location */
+   struct _MASS_UI_WIN  *focus;           /* window with focus */
+   uint16               key;              /* key mapped to keyboard or controller */
+   uint8                pushed;           /* release == !pushed */
+   uint32               ptrx;             /* pointer location */
+   uint32               ptry;             /* pointer location */
 } MASS_UI_EVTINPUT;
 
 struct _MASS_UI_WIN;
@@ -88,6 +89,23 @@ typedef struct _MASS_UI_WIN {
    MASS_UI_CB                cb;               /* callback function for events */
 } MASS_UI_WIN;
 
+/*
+   Export the UI interface to Lua directly. Yes, I would
+   have prefered anything Lua related to go into cl_lua
+   module, but I did not want to add more fluff so I just
+   did it directly.
+*/
+extern int mass_lua_winset_fgcolor(lua_State *lua);
+extern int mass_lua_winset_bgimg(lua_State *lua);
+extern int mass_lua_winset_flags(lua_State *lua);
+extern int mass_lua_winset_location(lua_State *lua);
+extern int mass_lua_winset_width(lua_State *lua);
+extern int mass_lua_winset_height(lua_State *lua);
+extern int mass_lua_winset_bgcolor(lua_State *lua);
+extern int mass_lua_winset_text(lua_State *lua);
+extern int mass_lua_createwindow(lua_State *lua);
+extern int mass_lua_scrdim(lua_State *lua);
+extern int mass_lua_destroywindow(lua_State *lua);
 
 DWORD WINAPI mass_client_entry(void *arg);
 #endif
