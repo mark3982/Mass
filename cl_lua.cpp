@@ -6,11 +6,97 @@
 #include "client.h"
 #include "cl_lua.h"
 
-/* I know it is bad, but I had too for the moment.. */
-lua_State               *g_lua;
+/*
+   I could have prefered a more object oriented method
+   without the usage of globals, but it really just
+   makes this sort of like one giant static object, and
+   that simplifies calling into the module because otherwise
+   I would have to pass around reference to an instance.
+*/
+static lua_State               *lua;
+
+static int mass_lua_loadfile(lua_State *lua) {
+   const char        *path;
+   void              *buf;
+   FILE              *fp;
+   int               fsz;
+   int               er;
+
+   path = lua_tostring(lua, 1);
+
+   if (strlen(path) > 900) {
+      fprintf(stderr, "error loading because path was too long: %s\n", path);
+
+      lua_pushboolean(lua, 0);
+      return 1;
+   }
+
+   buf = malloc(1024);
+   sprintf((char*)buf, ".\\Scripts\\%s", path);
+
+   fp = fopen((char*)buf, "rb");
+   if (!fp) {
+      fprintf(stderr, "error loading because file was missing or locked: %s\n", path);
+      free(buf);
+      lua_pushboolean(lua, 0);
+      return 1;
+   }
+
+   fseek(fp, 0, SEEK_END);
+   fsz = ftell(fp);
+
+   /* if size is greater than 100MB just exit */
+   if (fsz > 1024 * 1024 * 100) {
+      fprintf(stderr, "error loading because file was > 100MB: %s\n", path);
+      free(buf);
+      fclose(fp);
+
+      lua_pushboolean(lua, 0);
+      return 1;
+   }
+
+   fseek(fp, 0, SEEK_SET);
+   free(buf);
+
+   buf = malloc(fsz);
+   fread(buf, fsz, 1, fp);
+   fclose(fp);
+
+   /* push debug function onto stack */
+   lua_getglobal(lua, "debug");
+   lua_getfield(lua, -1, "traceback");
+   lua_remove(lua, -2);
+
+   /* this pushed the global body of the chunk as a function */
+   er = luaL_loadbuffer(lua, (char*)buf, fsz, 0);
+   free(buf);
+
+   /* check for load/compile time errors during loading of chunk */
+   if (er) {
+      fprintf(stderr, "%s\n", lua_tostring(lua, -1));
+      lua_pop(lua, 1);
+      fprintf(stderr, ".... during loading of [%s].\n", path);
+      lua_pushboolean(lua, 0);
+      return 1;
+   }
+
+   /* execute global body of chunk */
+   er = lua_pcall(lua, 0, 0, 1);
+
+   /* check for runtime errors */
+   if (er) {
+      fprintf(stderr, "%s", lua_tostring(lua, -1));
+      lua_pop(lua, 2);
+      lua_pushboolean(lua, 0);
+      return 1;
+   }
+   lua_pop(lua, 1);
+
+   lua_pushboolean(lua, 1);
+   return 1;
+}
 
 void mass_cl_luainit() {
-   lua_State      *lua;
    FILE           *fp;
    int            fsz;
    void           *buf;
@@ -48,12 +134,17 @@ void mass_cl_luainit() {
    lua_setglobal(lua, "mass_winset_flags");
    lua_pushcfunction(lua, mass_lua_winset_bgimg);
    lua_setglobal(lua, "mass_winset_bgimg");
+   lua_pushcfunction(lua, mass_lua_destroywindow);
+   lua_setglobal(lua, "mass_winset_destroywindow");
+   lua_pushcfunction(lua, mass_lua_loadfile);
+   lua_setglobal(lua, "mass_loadfile");
 
    lua_getglobal(lua, "debug");
    lua_getfield(lua, -1, "traceback");
    lua_remove(lua, -2);
 
    er = luaL_loadbuffer(lua, (char*)buf, fsz, 0);
+   free(buf);
 
    /* check for load/compile time errors during loading of chunk */
    if (er) {
@@ -75,14 +166,12 @@ void mass_cl_luainit() {
 
    /* pop error handler */
    lua_pop(lua, 1);
-   
-   g_lua = lua;
 }
 
 /*
    The callback handler.
 */
-void mass_cl_luacb(lua_State *lua, MASS_UI_WIN *win, uint32 evtype, void *ev) {
+void mass_cl_luacb(MASS_UI_WIN *win, uint32 evtype, void *ev) {
    MASS_UI_EVTINPUT        *evi;
    MASS_UI_DRAG            *evd;
    int                     er;

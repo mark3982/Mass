@@ -69,7 +69,7 @@ typedef struct _MASS_UI_EVTPTR_MOVE {
 
 //typedef void (*MASS_UI_CB) (_MASS_UI_WIN *win, uint32 evtype, void *ev);
 // static void defcb(lua_State *lua, MASS_UI_WIN *win, uint32 evtype, void *ev)
-typedef void (*MASS_UI_CB) (lua_State *lua, _MASS_UI_WIN *win, uint32 evtype, void *ev);
+typedef void (*MASS_UI_CB) (_MASS_UI_WIN *win, uint32 evtype, void *ev);
 
 
 typedef struct _MASS_UI_WIN {

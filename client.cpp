@@ -269,7 +269,7 @@ static void _mouse(int button, int state, int x, int y) {
          devt.ly = lastY;
          devt.dx = x - lastX;
          devt.dy = y - lastY;
-         lastClicked->cb(g_lua, lastClicked, MASS_UI_TY_EVTDRAG, &devt);
+         lastClicked->cb(lastClicked, MASS_UI_TY_EVTDRAG, &devt);
       } 
    }
 
@@ -339,7 +339,7 @@ static void _mouse(int button, int state, int x, int y) {
 
       evt.focus = focus;
 
-      clicked->cb(g_lua, clicked, MASS_UI_TY_EVTINPUT, &evt);
+      clicked->cb(clicked, MASS_UI_TY_EVTINPUT, &evt);
    }
 }
 
